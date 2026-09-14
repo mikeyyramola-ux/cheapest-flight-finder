@@ -8,7 +8,11 @@ html { background: #0d0e13; }
 body { margin: 0; background: #0d0e13; color: #f7f7f3; font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 button, input, select { font: inherit; }
 button, a, select { cursor: pointer; }
-button:active { transform: scale(.98); }
+button, a, select { -webkit-tap-highlight-color: transparent; }
+button { transition: transform .16s cubic-bezier(.23,1,.32,1), filter .16s ease, background-color .16s ease, border-color .16s ease, color .16s ease, opacity .16s ease; }
+button:active:not(:disabled), a:active { transform: scale(.97); }
+button:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid #b9ff98; outline-offset: 3px; }
+button:disabled { cursor: wait; opacity: .68; }
 .app-shell { min-height: 100vh; background: radial-gradient(circle at 70% -10%, rgba(147, 121, 255, .06), transparent 28%), #0d0e13; }
 .app-sidebar { position: fixed; z-index: 20; inset: 0 auto 0 0; display: flex; width: 238px; flex-direction: column; border-right: 1px solid rgba(255,255,255,.07); background: rgba(14,15,20,.86); padding: 28px 16px 18px; backdrop-filter: blur(20px); }
 .sidebar-top { display:flex; align-items:center; justify-content:space-between; padding: 0 10px 42px; }
@@ -102,3 +106,7 @@ button:active { transform: scale(.98); }
 .support-send { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; border-radius:9px; background:#b9ff98; padding:9px 11px; color:#10210d; font-size:10px; font-weight:800; text-decoration:none; }
 .support-close { width:100%; margin-top:12px; border:1px solid rgba(255,255,255,.1); border-radius:11px; background:rgba(255,255,255,.04); padding:11px; color:rgba(255,255,255,.65); font-size:11px; font-weight:700; }
 @media (max-width: 420px) { .support-contact { align-items:flex-start; flex-direction:column; } .support-send { width:100%; justify-content:center; } }
+
+/* Immediate tactile feedback for utility and action controls. */
+.top-icon:active, .top-premium:active, .nav-item:active, .swap-button:active, .icon-action:active, .scan-button:active, .delete-action:active, .mobile-menu:active, .mobile-close:active, .mobile-bottom-nav button:active { transform:scale(.94); }
+.search-button, .primary-cta, .book-button, .support-send { will-change:transform; }
