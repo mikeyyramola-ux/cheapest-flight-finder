@@ -93,3 +93,12 @@ button:active { transform: scale(.98); }
 .route-select-wrap option { background:#1b1e27; color:#fff; }
 .empty-chart-state { display:flex; align-items:center; gap:13px; border:1px dashed rgba(255,255,255,.14); border-radius:16px; margin-top:16px; padding:22px; color:#b9ff98; }
 @media (max-width: 720px) { .interactive-chart-card { padding:15px; } .interactive-chart-head { flex-direction:column; gap:12px; } .chart-current-price { align-items:flex-start; } .interactive-chart-title { font-size:20px; } .chart-kpi-row { gap:7px; } .chart-kpi { padding:9px; } .chart-kpi strong { font-size:14px; } .chart-kpi-note { font-size:8px; } .interactive-chart-wrap { height:230px; margin-top:16px; } .tracker-chart-controls { align-items:start; flex-direction:column; } .route-select-wrap { width:100%; } }
+
+.support-modal { border:1px solid rgba(185,255,152,.16); background:radial-gradient(circle at 85% 0%, rgba(185,255,152,.1), transparent 36%), #171921; box-shadow:0 30px 100px rgba(0,0,0,.6); }
+.support-icon { display:flex; width:42px; height:42px; align-items:center; justify-content:center; border-radius:13px; background:rgba(185,255,152,.12); color:#b9ff98; }
+.support-contact { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:24px; border:1px solid rgba(255,255,255,.09); border-radius:15px; background:rgba(255,255,255,.035); padding:15px; }
+.support-email { display:inline-block; margin-top:6px; color:#b9ff98; font-size:13px; font-weight:700; text-decoration:none; }
+.support-email:hover { text-decoration:underline; }
+.support-send { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; border-radius:9px; background:#b9ff98; padding:9px 11px; color:#10210d; font-size:10px; font-weight:800; text-decoration:none; }
+.support-close { width:100%; margin-top:12px; border:1px solid rgba(255,255,255,.1); border-radius:11px; background:rgba(255,255,255,.04); padding:11px; color:rgba(255,255,255,.65); font-size:11px; font-weight:700; }
+@media (max-width: 420px) { .support-contact { align-items:flex-start; flex-direction:column; } .support-send { width:100%; justify-content:center; } }
