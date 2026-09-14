@@ -49,3 +49,8 @@ The application exposes `POST /api/scheduled/scan-flight-deals` as a platform-fr
 ## Production notes
 
 The current in-memory store is deliberately a launch-ready simulation layer for the generated demo. For production, persist `TrackedRoute` records and Stripe IDs in the existing Drizzle/MySQL database, then replace `listTrackedRoutes`, `addTrackedRoute`, and `scanTrackedRoutes` with database helpers. Keep the route ownership check and verify cron identity from the platform scheduler before mutating rows.
+
+
+## Affiliate booking links
+
+The Book now buttons intentionally fall back to direct airline links until a real Travelpayouts link is configured. To enable commission tracking, generate a flight-partner deep link in Travelpayouts and add it in Vercel as the public variable `VITE_TRAVELPAYOUTS_AFFILIATE_URL`. You may include the literal `{subid}` placeholder in the generated link; Faredrop replaces it with a route-specific marker such as `faredrop-jfk-lhr-sample-1`. If the generated URL does not support a placeholder, the exact generated URL is used unchanged. Do not label or advertise a link as affiliate-enabled until the partner URL is approved and tested.
