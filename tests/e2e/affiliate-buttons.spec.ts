@@ -30,6 +30,24 @@ test.describe("hydrated affiliate booking buttons", () => {
       }
     }
   });
+
+  test("recalculates fare totals and average savings when travelers change", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /search fares/i }).click();
+
+    const savingsValue = page.locator(".metric-card").filter({ hasText: "Avg. savings" }).locator(".metric-value");
+    const firstFlightPrice = page.locator(".flight-card").first().locator(".flight-price");
+    const oneTravelerSavings = await savingsValue.textContent();
+    const oneTravelerPrice = await firstFlightPrice.textContent();
+
+    await page.getByLabel("Travelers").selectOption("3");
+    await page.getByRole("button", { name: /search fares/i }).click();
+
+    await expect(firstFlightPrice).toContainText("1,167");
+    await expect(page.locator(".flight-card").first()).toContainText("for 3 travelers");
+    await expect(savingsValue).not.toHaveText(oneTravelerSavings ?? "");
+    expect(oneTravelerPrice).not.toBe("1,167");
+  });
 });
 
 function escapeRegExp(value: string) {
