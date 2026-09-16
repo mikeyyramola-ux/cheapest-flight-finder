@@ -43,6 +43,32 @@ pnpm dev
 pnpm check:affiliate-links -- --url http://localhost:3000
 ```
 
+## Browser test for hydrated React buttons
+
+The Playwright test at `tests/e2e/affiliate-buttons.spec.ts` opens the app in Chromium, clicks **Search fares**, waits for React to render the flight cards, and verifies every `.book-button` has an HTTPS destination and the `sponsored` relationship. It is the preferred test for this client-rendered app.
+
+Run it locally:
+
+```bash
+pnpm test:e2e:affiliate
+```
+
+Run it against a deployed site:
+
+```bash
+TEST_BASE_URL=https://your-domain.example pnpm exec playwright test tests/e2e/affiliate-buttons.spec.ts
+```
+
+When the affiliate partner host is known, enforce it too:
+
+```bash
+TEST_BASE_URL=https://your-domain.example \
+TEST_AFFILIATE_HOST=tp.media \
+pnpm exec playwright test tests/e2e/affiliate-buttons.spec.ts
+```
+
+The test intentionally fails when the deployment does not contain the dashboard search flow, which catches accidentally serving an older marketing deployment.
+
 ## Notes
 
 HTTP `HEAD` is attempted first. Some travel partners reject `HEAD`, so the checker automatically retries with a limited `GET`. A `3xx` redirect is considered healthy when it resolves successfully. A `4xx`, `5xx`, timeout, DNS error, or disallowed final affiliate host fails the command.
