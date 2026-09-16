@@ -14,10 +14,12 @@ export default defineConfig({
     video: "retain-on-failure",
     ...devices["Desktop Chrome"],
   },
-  webServer: {
-    command: "pnpm dev",
-    url: baseURL,
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  ...(process.env.TEST_SKIP_SERVER ? {} : {
+    webServer: {
+      command: "pnpm dev",
+      url: baseURL,
+      reuseExistingServer: true,
+      timeout: 120_000,
+    },
+  }),
 });
