@@ -2,9 +2,10 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, router } from "./_core/trpc";
 import { addTrackedRoute, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout, premiumPlan } from "./stripe";
+import { getPartnerHealthReport } from "./partner-health";
 
 const searchInput = z.object({
   origin: z.string().min(3).max(3),
@@ -41,6 +42,9 @@ export const appRouter = router({
   billing: router({
     pricing: publicProcedure.query(() => premiumPlan),
     checkout: publicProcedure.input(z.object({ route: z.string().optional() })).mutation(async ({ ctx, input }) => createPremiumCheckout({ origin: input.route ?? "dashboard", userId: ctx.user?.id, email: ctx.user?.email, name: ctx.user?.name })),
+  }),
+  monitoring: router({
+    partners: adminProcedure.query(() => getPartnerHealthReport()),
   }),
 });
 

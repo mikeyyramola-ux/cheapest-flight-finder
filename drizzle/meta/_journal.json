@@ -15,6 +15,13 @@
       "when": 1789586534395,
       "tag": "0001_minor_spencer_smythe",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1789673706068,
+      "tag": "0002_crazy_rocket_racer",
+      "breakpoints": true
     }
   ]
 }

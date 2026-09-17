@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -24,6 +24,27 @@ export const users = mysqlTable("users", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
+
+export const partnerHealth = mysqlTable("partnerHealth", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  category: varchar("category", { length: 32 }).notNull(),
+  url: text("url").notNull(),
+  status: mysqlEnum("status", ["up", "degraded", "down"]).default("down").notNull(),
+  httpStatus: int("httpStatus"),
+  latencyMs: int("latencyMs"),
+  totalChecks: int("totalChecks").default(0).notNull(),
+  totalFailures: int("totalFailures").default(0).notNull(),
+  consecutiveFailures: int("consecutiveFailures").default(0).notNull(),
+  lastError: text("lastError"),
+  lastCheckedAt: timestamp("lastCheckedAt"),
+  lastSuccessAt: timestamp("lastSuccessAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  statusIdx: index("partnerHealth_status_idx").on(table.status),
+}));
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
