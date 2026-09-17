@@ -1,0 +1,52 @@
+import { chromium } from "@playwright/test";
+
+const baseURL = process.env.AUDIT_URL || "http://127.0.0.1:3000";
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage();
+const errors = [];
+const failedRequests = [];
+page.on("pageerror", error => errors.push(`pageerror: ${error.message}`));
+page.on("console", message => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
+page.on("requestfailed", request => failedRequests.push(`${request.method()} ${request.url()} :: ${request.failure()?.errorText || "failed"}`));
+const checks = [];
+const check = (name, ok, detail = "") => checks.push({ name, ok, detail });
+try {
+  await page.goto(`${baseURL}/`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.getByRole("button", { name: /Search fares/i }).click();
+  check("flight search", await page.locator(".flight-card").count() > 0);
+  await page.getByRole("button", { name: "One way" }).click();
+  check("one-way toggle", await page.locator('input[type="date"]').nth(1).isDisabled());
+  await page.getByRole("button", { name: "Return" }).click();
+  check("return toggle", !(await page.locator('input[type="date"]').nth(1).isDisabled()));
+  await page.getByRole("button", { name: "Fastest" }).click();
+  check("fastest sort", (await page.locator(".flight-card").first().innerText()).includes("6h 50m"));
+  await page.getByRole("button", { name: "Cheapest total" }).click();
+  const staysPopup = page.waitForEvent("popup");
+  await page.getByRole("tab", { name: "Stays" }).click();
+  await page.getByPlaceholder("City, hotel, or landmark").fill("London");
+  await page.getByRole("button", { name: /Search stays/i }).click();
+  const stays = await staysPopup;
+  check("live stays redirect", (await stays.url()).startsWith("https://www.booking.com/searchresults.html"));
+  await stays.close();
+  const carsPopup = page.waitForEvent("popup");
+  await page.getByRole("tab", { name: "Cars" }).click();
+  await page.getByPlaceholder("City or airport").fill("London Heathrow");
+  await page.getByRole("button", { name: /Search cars/i }).click();
+  const cars = await carsPopup;
+  check("live cars redirect", (await cars.url()).startsWith("https://www.rentalcars.com/search-results"));
+  await cars.close();
+  await page.getByRole("tab", { name: "Flights" }).click();
+  await page.getByRole("button", { name: "Open notifications" }).click();
+  check("notifications drawer", await page.getByRole("dialog", { name: "Notifications" }).isVisible());
+  await page.getByRole("dialog", { name: "Notifications" }).getByRole("button", { name: "Close notifications" }).click();
+  await page.getByRole("button", { name: "Help center" }).click();
+  check("help modal", await page.getByText("Help & customer care").isVisible());
+  await page.getByRole("button", { name: "Close help" }).click();
+  await page.getByRole("button", { name: /Go premium/i }).click();
+  check("premium paywall", await page.getByText("Global fare coverage").isVisible());
+} catch (error) {
+  check("audit execution", false, error.message);
+}
+await browser.close();
+console.log(JSON.stringify({ baseURL, checks, errors, failedRequests }, null, 2));
+if (checks.some(item => !item.ok) || errors.length > 0) process.exitCode = 1;
