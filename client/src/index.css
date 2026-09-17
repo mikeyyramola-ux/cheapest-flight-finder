@@ -141,3 +141,10 @@ button:disabled { cursor: wait; opacity: .68; }
 .affiliate-trust-dot { width:6px; height:6px; border-radius:50%; background:#b9ff98; box-shadow:0 0 8px rgba(185,255,152,.75); }
 .affiliate-trust-separator { color:rgba(255,255,255,.18); }
 .book-button { min-width:94px; justify-content:center; }
+
+.results-toolbar { display:flex; align-items:center; gap:10px; margin:14px 0 18px; padding:10px 12px; border:1px solid rgba(255,255,255,.08); border-radius:13px; background:rgba(255,255,255,.025); }
+.sort-toggle { display:inline-flex; gap:3px; border-radius:9px; background:rgba(255,255,255,.06); padding:3px; }
+.sort-toggle button { border-radius:7px; padding:7px 10px; color:rgba(255,255,255,.45); font-size:10px; font-weight:800; transition:all .16s cubic-bezier(.23,1,.32,1); }
+.sort-toggle button:hover { color:#fff; }
+.sort-toggle button.active { background:#b9ff98; color:#10210d; box-shadow:0 4px 14px rgba(185,255,152,.16); }
+@media (max-width: 640px) { .results-toolbar { align-items:flex-start; flex-wrap:wrap; } .results-toolbar > span:last-child { width:100%; } }

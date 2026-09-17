@@ -89,4 +89,22 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function updateUserStripeSubscription(input: {
+  userId: number;
+  customerId?: string | null;
+  subscriptionId?: string | null;
+  status: string;
+}) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot persist Stripe subscription: database not available");
+    return false;
+  }
+
+  await db.update(users).set({
+    stripeCustomerId: input.customerId ?? undefined,
+    stripeSubscriptionId: input.subscriptionId ?? undefined,
+    subscriptionStatus: input.status,
+  }).where(eq(users.id, input.userId));
+  return true;
+}

@@ -48,6 +48,30 @@ test.describe("hydrated affiliate booking buttons", () => {
     await expect(savingsValue).not.toHaveText(oneTravelerSavings ?? "");
     expect(oneTravelerPrice).not.toBe("1,167");
   });
+
+  test("shows expanded premium value and global airport coverage", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    await page.getByRole("button", { name: /go premium/i }).click();
+    await expect(page.getByText("Global fare coverage")).toBeVisible();
+    await expect(page.getByText("Flexible-date deal radar")).toBeVisible();
+    await expect(page.getByText("700+ airlines across 190+ countries", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: /close paywall/i }).evaluate((element) => (element as HTMLButtonElement).click());
+    await expect(page.getByLabel("Flying from").locator("option")).toHaveCount(32);
+    await expect(page.getByLabel("Flying to").locator("option")).toHaveCount(32);
+  });
+
+  test("keeps cheapest-first priority while allowing fastest sorting", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /search fares/i }).click();
+
+    await expect(page.locator(".flight-card").first().locator(".flight-price")).toHaveText("389");
+    await page.getByRole("button", { name: "Fastest" }).click();
+    await expect(page.locator(".flight-card").first().locator(".route-duration")).toHaveText("6h 50m");
+    await page.getByRole("button", { name: "Cheapest total" }).click();
+    await expect(page.locator(".flight-card").first().locator(".flight-price")).toHaveText("389");
+  });
 });
 
 function escapeRegExp(value: string) {

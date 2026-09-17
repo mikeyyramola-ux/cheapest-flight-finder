@@ -17,6 +17,7 @@ export type FlightOffer = {
   baggage: string;
   bookingUrl: string;
   isBest: boolean;
+  layoverCountry?: string;
   source: "Seed data" | "Amadeus API";
 };
 
@@ -107,8 +108,13 @@ function buildFallbackOffers(origin: string, destination: string, departureDate:
     ["Air France", "AF", "13:20", "06:40", "10h 20m", 1],
     ["Lufthansa", "LH", "16:45", "11:15", "11h 30m", 1],
     ["Qatar Airways", "QR", "21:10", "18:05", "14h 55m", 1],
+    ["Turkish Airlines", "TK", "09:35", "07:50", "12h 15m", 1],
+    ["Etihad Airways", "EY", "22:20", "19:40", "14h 20m", 1],
+    ["Singapore Airlines", "SQ", "11:10", "08:35", "13h 25m", 1],
+    ["Emirates", "EK", "15:45", "12:10", "14h 25m", 1],
+    ["United Airlines", "UA", "18:25", "09:15", "9h 50m", 0],
   ] as const;
-  return airlines.map(([airline, airlineCode, departureTime, arrivalTime, duration, stops], index) => ({ id: `fallback-${origin}-${destination}-${index}`, airline, airlineCode, origin, destination, departureDate, departureTime, arrivalTime, duration, stops, price: base + index * 78, currency: "USD", cabin: "Economy", baggage: "1 carry-on", bookingUrl: `https://www.google.com/travel/flights?q=${origin}%20to%20${destination}`, isBest: index === 0, source: "Seed data" }));
+  return airlines.map(([airline, airlineCode, departureTime, arrivalTime, duration, stops], index) => ({ id: `fallback-${origin}-${destination}-${index}`, airline, airlineCode, origin, destination, departureDate, departureTime, arrivalTime, duration, stops, price: base + index * 78, currency: "USD", cabin: "Economy", baggage: "1 carry-on", bookingUrl: `https://www.google.com/travel/flights?q=${origin}%20to%20${destination}`, isBest: index === 0, layoverCountry: stops > 0 ? ["France", "Germany", "Qatar", "Türkiye", "United Arab Emirates", "Singapore", "United States"][index] : undefined, source: "Seed data" }));
 }
 
 export function listTrackedRoutes() {
