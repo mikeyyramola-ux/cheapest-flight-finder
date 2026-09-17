@@ -4,7 +4,7 @@ const requiredAffiliateHost = process.env.TEST_AFFILIATE_HOST?.toLowerCase();
 
 test.describe("hydrated affiliate booking buttons", () => {
   test("renders working booking links after React hydration", async ({ page }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
 
     const searchButton = page.getByRole("button", { name: /search fares/i });
     await expect(searchButton).toBeVisible();
@@ -32,7 +32,7 @@ test.describe("hydrated affiliate booking buttons", () => {
   });
 
   test("recalculates fare totals and average savings when travelers change", async ({ page }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: /search fares/i }).click();
 
     const savingsValue = page.locator(".metric-card").filter({ hasText: "Avg. savings" }).locator(".metric-value");
@@ -50,7 +50,7 @@ test.describe("hydrated affiliate booking buttons", () => {
   });
 
   test("shows expanded premium value and global airport coverage", async ({ page }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
 
     await page.getByRole("button", { name: /go premium/i }).click();
     await expect(page.getByText("Global fare coverage")).toBeVisible();
@@ -63,7 +63,7 @@ test.describe("hydrated affiliate booking buttons", () => {
   });
 
   test("keeps cheapest-first priority while allowing fastest sorting", async ({ page }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: /search fares/i }).click();
 
     await expect(page.locator(".flight-card").first().locator(".flight-price")).toHaveText("389");
