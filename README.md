@@ -54,3 +54,16 @@ The current in-memory store is deliberately a launch-ready simulation layer for 
 ## Affiliate booking links
 
 The Book now buttons intentionally fall back to direct airline links until a real Travelpayouts link is configured. To enable commission tracking, generate a flight-partner deep link in Travelpayouts and add it in Vercel as the public variable `VITE_TRAVELPAYOUTS_AFFILIATE_URL`. You may include the literal `{subid}` placeholder in the generated link; Faredrop replaces it with a route-specific marker such as `faredrop-jfk-lhr-sample-1`. If the generated URL does not support a placeholder, the exact generated URL is used unchanged. Do not label or advertise a link as affiliate-enabled until the partner URL is approved and tested.
+
+## SEO and custom domain
+
+Fareloop now uses server-side rendering for the initial HTML response. The root response contains the Fareloop title, a sub-160-character description, canonical URL, Open Graph and Twitter Card tags, SoftwareApplication JSON-LD, one H1, descriptive H2 sections, and visible copy explaining the product, pricing, supported regions, and affiliate disclosure. `robots.txt` and `sitemap.xml` are served at the site root by the Express server. There are currently no raster images in the public dashboard, so there are no image elements missing alt text; future images must use descriptive alt text.
+
+Set these deployment variables to replace the temporary Manus-space canonical origin when a domain you own is connected:
+
+```bash
+SITE_NAME=Fareloop
+CANONICAL_ORIGIN=https://your-owned-domain.example
+```
+
+The domain cannot be registered or DNS-configured without a domain owned by the account holder. After the domain is purchased or selected, add it in the hosting provider, point its DNS records to the provider's instructions, and set `CANONICAL_ORIGIN` to the final HTTPS URL before publishing. The generated sitemap and canonical/OG URLs will then update automatically.

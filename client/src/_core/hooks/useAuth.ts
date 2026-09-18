@@ -51,10 +51,16 @@ export function useAuth(options?: UseAuthOptions) {
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(
+          "manus-runtime-user-info",
+          JSON.stringify(meQuery.data)
+        );
+      } catch {
+        // Storage can be unavailable in private browsing or SSR.
+      }
+    }
     return {
       user: meQuery.data ?? null,
       loading: meQuery.isLoading || logoutMutation.isPending,

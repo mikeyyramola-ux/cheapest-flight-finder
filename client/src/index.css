@@ -158,4 +158,8 @@ button:disabled { cursor: wait; opacity: .68; }
 .partner-location { display:flex; flex-direction:column; gap:8px; border:1px solid rgba(255,255,255,.1); border-radius:12px; background:rgba(255,255,255,.025); padding:12px 14px; }
 .partner-location input { width:100%; border:0; outline:0; background:transparent; color:#fff; font-size:15px; }
 .partner-location input::placeholder { color:rgba(255,255,255,.3); }
+.seo-content { max-width: 980px; margin: 12px auto 92px; padding: 32px 24px; display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:28px; border-top:1px solid rgba(255,255,255,.08); }
+.seo-copy h2 { margin: 7px 0 12px; color:#fff; font-size:18px; line-height:1.25; letter-spacing:-.02em; }
+.seo-copy p { margin:0 0 13px; color:rgba(255,255,255,.48); font-size:12px; line-height:1.75; }
+@media (max-width: 850px) { .seo-content { grid-template-columns:1fr; gap:22px; padding:26px 18px; } }
 @media (max-width:720px) { .mode-tabs button { flex:1; padding:10px 8px; } .partner-search-panel { padding:14px; } }
