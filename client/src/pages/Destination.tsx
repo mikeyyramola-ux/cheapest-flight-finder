@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import { useParams } from "wouter";
+import { Link, useParams } from "wouter";
 import NotFound from "@/pages/NotFound";
 import {
   DESTINATIONS,
@@ -73,7 +73,7 @@ function DestinationDirectory({ currentSlug }: { currentSlug?: string }) {
             <p>
               {items.map((d, index) => (
                 <span key={d.slug}>
-                  <a href={destinationPath(d.slug)}>{d.city}</a>
+                  <Link href={destinationPath(d.slug)}>{d.city}</Link>
                   {index < items.length - 1 ? " · " : ""}
                 </span>
               ))}
@@ -108,7 +108,7 @@ export function DestinationHub() {
               Fare guides for {DESTINATIONS.length} major cities: when to fly, which airport to use, and how to watch the price trend before you book.
             </p>
           </div>
-          <a className="primary-cta small" href="/">Search flights <ArrowRight size={14} /></a>
+          <Link className="primary-cta small" href="/">Search flights <ArrowRight size={14} /></Link>
         </header>
         <section className="seo-content" aria-label="Destination directory">
           <div className="seo-copy">
@@ -123,8 +123,8 @@ export function DestinationHub() {
         </section>
         <footer className="faq-footer">
           <p>
-            New here? Read the <a href="/faq">cheap flights FAQ</a>, watch a route in the <a href="/tracker">deal tracker</a>, or see what{" "}
-            <a href="/paywall">Fareloop Premium</a> unlocks.
+            New here? Read the <Link href="/faq">cheap flights FAQ</Link>, watch a route in the <Link href="/tracker">deal tracker</Link>, or see what{" "}
+            <Link href="/paywall">Fareloop Premium</Link> unlocks.
           </p>
         </footer>
       </main>
@@ -152,7 +152,7 @@ export default function DestinationPage() {
               {dest.airport} · {dest.country}. Compare total prices, watch the 90-day trend, and get alerts when fares to {dest.city} drop.
             </p>
           </div>
-          <a className="primary-cta small" href={`/?to=${dest.code}`}>Search flights to {dest.city} <ArrowRight size={14} /></a>
+          <Link className="primary-cta small" href={`/?to=${dest.code}`}>Search flights to {dest.city} <ArrowRight size={14} /></Link>
         </header>
         <section className="seo-content" aria-label={`Flights to ${dest.city}`}>
           <div className="seo-copy">
@@ -176,7 +176,7 @@ export default function DestinationPage() {
             <p>
               {routes.map((code, index) => (
                 <span key={code}>
-                  <a href={`/?from=${code}&to=${dest.code}`}>{hubLabel(code)} to {dest.city}</a>
+                  <Link href={`/?from=${code}&to=${dest.code}`}>{hubLabel(code)} to {dest.city}</Link>
                   {index < routes.length - 1 ? " · " : ""}
                 </span>
               ))}
@@ -195,8 +195,8 @@ export default function DestinationPage() {
         </section>
         <footer className="faq-footer">
           <p>
-            <a href="/">Search cheap flights</a> · <a href="/flights-to">All destinations</a> · <a href="/faq">Cheap flights FAQ</a> ·{" "}
-            <a href="/tracker">Deal tracker</a> · <a href="/paywall">Fareloop Premium</a>
+            <Link href="/">Search cheap flights</Link> · <Link href="/flights-to">All destinations</Link> · <Link href="/faq">Cheap flights FAQ</Link> ·{" "}
+            <Link href="/tracker">Deal tracker</Link> · <Link href="/paywall">Fareloop Premium</Link>
           </p>
         </footer>
       </main>

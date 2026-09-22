@@ -1,4 +1,5 @@
 import { ArrowRight } from "lucide-react";
+import { Link } from "wouter";
 
 type FaqItem = { q: string; a: string };
 
@@ -62,7 +63,7 @@ export default function FAQ() {
             <h1 className="page-title">Cheap flights &amp; price-drop alerts: <em>FAQ</em></h1>
             <p className="hero-subtitle">How Fareloop finds lower fares, how alerts work, and what partner booking links mean for you.</p>
           </div>
-          <a className="primary-cta small" href="/">Search flights <ArrowRight size={14} /></a>
+          <Link className="primary-cta small" href="/">Search flights <ArrowRight size={14} /></Link>
         </header>
         <section className="seo-content" aria-label="Frequently asked questions">
           {FAQ_ITEMS.map(item => (
@@ -73,7 +74,7 @@ export default function FAQ() {
           ))}
         </section>
         <footer className="faq-footer">
-          <p>Ready to compare fares? <a href="/">Search cheap flights</a>, watch a route in the <a href="/tracker">deal tracker</a>, see what <a href="/paywall">Premium</a> unlocks, or open a <a href="/flights-to">destination fare guide</a>.</p>
+          <p>Ready to compare fares? <Link href="/">Search cheap flights</Link>, watch a route in the <Link href="/tracker">deal tracker</Link>, see what <Link href="/paywall">Premium</Link> unlocks, or open a <Link href="/flights-to">destination fare guide</Link>.</p>
         </footer>
       </main>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd }} />

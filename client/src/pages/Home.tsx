@@ -153,16 +153,16 @@ function SeoContent() {
     </div>
     <div className="seo-copy">
       <h2>Plan smarter with Fareloop guides</h2>
-      <p>New to fare tracking? Read the <a href="/faq">cheap flights FAQ</a> for how price-drop alerts work, open the <a href="/tracker">deal tracker</a> to watch a route, or see what <a href="/paywall">Fareloop Premium</a> unlocks. Searching stays free — start with a popular route like New York to London.</p>
+      <p>New to fare tracking? Read the <Link href="/faq">cheap flights FAQ</Link> for how price-drop alerts work, open the <Link href="/tracker">deal tracker</Link> to watch a route, or see what <Link href="/paywall">Fareloop Premium</Link> unlocks. Searching stays free — start with a popular route like New York to London.</p>
       <p>
         Planning a specific trip? Open a destination fare guide:{" "}
         {DESTINATIONS.slice(0, 8).map((dest, index) => (
           <span key={dest.slug}>
-            <a href={destinationPath(dest.slug)}>flights to {dest.city}</a>
+            <Link href={destinationPath(dest.slug)}>flights to {dest.city}</Link>
             {index < 7 ? " · " : ""}
           </span>
         ))}{" "}
-        — or browse <a href="/flights-to">all {DESTINATIONS.length} destinations</a>.
+        — or browse <Link href="/flights-to">all {DESTINATIONS.length} destinations</Link>.
       </p>
     </div>
   </section>;
