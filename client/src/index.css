@@ -165,5 +165,7 @@ button:disabled { cursor: wait; opacity: .68; }
 .seo-content a:hover, .faq-footer a:hover { text-decoration-thickness:2px; }
 .faq-footer { max-width:980px; margin:-60px auto 92px; padding:18px 24px; border:1px solid rgba(185,255,152,.16); border-radius:16px; background:linear-gradient(145deg, rgba(185,255,152,.07), rgba(185,255,152,.012)); color:rgba(255,255,255,.55); font-size:13px; line-height:1.7; }
 .faq-footer p { margin:0; }
+.tp-widget-slot { grid-column:1 / -1; }
+.tp-widget-slot:empty { display:none; }
 @media (max-width: 850px) { .seo-content { grid-template-columns:1fr; gap:22px; padding:26px 18px; } }
 @media (max-width:720px) { .mode-tabs button { flex:1; padding:10px 8px; } .partner-search-panel { padding:14px; } }
