@@ -1,13 +1,13 @@
 import "dotenv/config";
-import express from "express";
-import { createServer } from "http";
+import express, { type Express } from "express";
+import { createServer, type Server } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./render";
 import { handleStripeWebhook } from "../stripe";
 import { monitorPartnersHandler, scanFlightDealsHandler } from "../scheduled";
 
@@ -30,7 +30,12 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-async function startServer() {
+/**
+ * Build the fully configured Express application.
+ * Used both by the local/long-running server (startServer) and by the
+ * Vercel serverless function entry (api/index.js).
+ */
+export async function createApp(): Promise<{ app: Express; server: Server }> {
   const app = express();
   const server = createServer(app);
   const canonicalOrigin = (process.env.CANONICAL_ORIGIN || "https://cheapflights-lx7n3n4y.manus.space").replace(/\/$/, "");
@@ -61,10 +66,18 @@ async function startServer() {
   );
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
+    // Dynamic + externalized in the production bundle (see package.json build):
+    // Vite must never be loaded inside the Vercel serverless function.
+    const { setupVite } = await import("./vite");
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
+  return { app, server };
+}
+
+async function startServer() {
+  const { server } = await createApp();
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
@@ -78,4 +91,8 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+// On Vercel the app is exported as a serverless function (see api/index.js)
+// and must never call listen().
+if (!process.env.VERCEL) {
+  startServer().catch(console.error);
+}
