@@ -40,7 +40,7 @@ export async function createApp(): Promise<{ app: Express; server: Server }> {
   const server = createServer(app);
   const canonicalOrigin = (process.env.CANONICAL_ORIGIN || "https://cheapflights-lx7n3n4y.manus.space").replace(/\/$/, "");
   app.get("/robots.txt", (_req, res) => res.type("text").send(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${canonicalOrigin}/sitemap.xml\n`));
-  app.get("/sitemap.xml", (_req, res) => res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${canonicalOrigin}/</loc></url><url><loc>${canonicalOrigin}/tracker</loc></url><url><loc>${canonicalOrigin}/paywall</loc></url></urlset>`));
+  app.get("/sitemap.xml", (_req, res) => res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${canonicalOrigin}/</loc></url><url><loc>${canonicalOrigin}/tracker</loc></url><url><loc>${canonicalOrigin}/paywall</loc></url><url><loc>${canonicalOrigin}/faq</loc></url></urlset>`));
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const result = await handleStripeWebhook(req.body as Buffer, req.headers["stripe-signature"] as string | undefined);

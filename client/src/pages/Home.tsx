@@ -146,6 +146,10 @@ function SeoContent() {
       <h2>Supported routes and travel modes</h2>
       <p>Use Flights for global route discovery, Stays for live hotel searches, and Cars for live rental searches. Fareloop does not invent hotel or car inventory: those searches open partner results with your location and dates. Flight booking links may be affiliate links, which means Fareloop can earn a commission if you book through a partner at no additional cost to you. That revenue helps support route coverage, monitoring, and future fare tools.</p>
     </div>
+    <div className="seo-copy">
+      <h2>Plan smarter with Fareloop guides</h2>
+      <p>New to fare tracking? Read the <a href="/faq">cheap flights FAQ</a> for how price-drop alerts work, open the <a href="/tracker">deal tracker</a> to watch a route, or see what <a href="/paywall">Fareloop Premium</a> unlocks. Searching stays free — start with a popular route like New York to London.</p>
+    </div>
   </section>;
 }
 
