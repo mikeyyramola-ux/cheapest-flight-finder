@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
+import { type ReactNode, useEffect, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
 
 // SPA navigations own the scroll position: disable the browser's
@@ -15,15 +15,17 @@ const EASE_EXIT = [0.4, 0, 1, 1] as const;
 /**
  * Lands the viewport at the top for every route change, before paint, so the
  * incoming page never flashes mid-scroll. Skips the very first page load to
- * preserve normal deep-link/reload scroll behavior. Runs in `useEffect` on the
- * server (no-op) to avoid SSR useLayoutEffect warnings.
+ * preserve normal deep-link/reload scroll behavior. The first-load guard is
+ * module-level because this component remounts (fresh refs) on every route.
+ * Runs in `useEffect` on the server (no-op) to avoid SSR warnings.
  */
+let hasLoadedInitialPage = false;
+
 function ScrollToTop({ location }: { location: string }) {
-  const isFirstRun = useRef(true);
   const useIsoEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
   useIsoEffect(() => {
-    if (isFirstRun.current) {
-      isFirstRun.current = false;
+    if (!hasLoadedInitialPage) {
+      hasLoadedInitialPage = true;
       return;
     }
     window.scrollTo(0, 0);
