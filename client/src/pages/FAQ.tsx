@@ -73,7 +73,7 @@ export default function FAQ() {
           ))}
         </section>
         <footer className="faq-footer">
-          <p>Ready to compare fares? <a href="/">Search cheap flights</a>, watch a route in the <a href="/tracker">deal tracker</a>, or see <a href="/paywall">Premium features</a>.</p>
+          <p>Ready to compare fares? <a href="/">Search cheap flights</a>, watch a route in the <a href="/tracker">deal tracker</a>, see what <a href="/paywall">Premium</a> unlocks, or open a <a href="/flights-to">destination fare guide</a>.</p>
         </footer>
       </main>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd }} />

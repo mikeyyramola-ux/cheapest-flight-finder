@@ -4,6 +4,7 @@ import { type Server } from "http";
 import path from "path";
 import { pathToFileURL } from "node:url";
 import superjson from "superjson";
+import { destinationBySlug, DESTINATIONS, type Destination } from "@shared/destinations";
 
 type HeadMeta = {
   title: string;
@@ -42,7 +43,22 @@ const ROUTE_META: Record<string, HeadMeta> = {
     description: "Answers on finding cheap flights, how price-drop alerts work, route coverage, Premium pricing, and transparent affiliate links.",
     canonicalPath: "/faq",
   },
+  "/flights-to": {
+    title: "Flight Destinations – City Fare Guides | Fareloop",
+    description: `Fare guides for ${DESTINATIONS.length} major cities: when to fly, which airport to use, and how to watch the price trend before you book.`,
+    canonicalPath: "/flights-to",
+  },
 };
+
+/** Unique per-city head meta for /flights-to/:slug destination pages. */
+function destinationHead(dest: Destination, pathname: string): HeadMeta {
+  return {
+    title: `Cheap Flights to ${dest.city} (${dest.code}) – Fares & Alerts | Fareloop`,
+    description: `Planning a trip to ${dest.city}? Compare cheap flights to ${dest.airport} (${dest.code}), watch the 90-day fare trend, and get price-drop alerts. ${dest.season}`,
+    keywords: `flights to ${dest.city}, cheap flights to ${dest.city}, ${dest.code} flights, ${dest.airport}, flights to ${dest.country}, ${dest.city} airfare`,
+    canonicalPath: pathname,
+  };
+}
 
 const notFoundHead = (pathname: string): HeadMeta => ({
   title: "Page not found | Fareloop",
@@ -60,6 +76,12 @@ function normalizePath(url: string) {
 function resolveHead(url: string): { head: HeadMeta; status: 200 | 404 } {
   const pathname = normalizePath(url);
   if (pathname === "/") return { head: DEFAULT_HEAD, status: 200 };
+  const destinationMatch = pathname.match(/^\/flights-to\/([^/]+)$/);
+  if (destinationMatch) {
+    const dest = destinationBySlug(decodeURIComponent(destinationMatch[1]));
+    if (dest) return { head: destinationHead(dest, pathname), status: 200 };
+    return { head: notFoundHead(pathname), status: 404 };
+  }
   const meta = ROUTE_META[pathname];
   if (meta) return { head: { ...meta, canonicalPath: pathname }, status: 200 };
   return { head: notFoundHead(pathname), status: 404 };
@@ -102,6 +124,16 @@ function buildHeadTags(head: HeadMeta) {
     tags.push(`<link rel="canonical" href="${safeCanonical}" />`);
   }
   if (head.noindex) tags.push(`<meta name="robots" content="noindex, follow" />`);
+  // Search-console verification tags (env-gated; unset envs emit nothing).
+  const verifications: Array<[name: string, env: string | undefined]> = [
+    ["google-site-verification", process.env.GOOGLE_SITE_VERIFICATION],
+    ["msvalidate.01", process.env.BING_SITE_VERIFICATION],
+    ["yandex-verification", process.env.YANDEX_SITE_VERIFICATION],
+  ];
+  for (const [name, value] of verifications) {
+    const token = value?.trim();
+    if (token) tags.push(`<meta name="${name}" content="${escapeHtml(token)}" />`);
+  }
   tags.push(`<script type="application/ld+json">${JSON.stringify({
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { startLogin } from "@/const";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { airportOptions, DESTINATIONS, destinationPath } from "@shared/destinations";
 import { ArrowRight, Bell, CalendarDays, CarFront, Check, ChevronDown, CircleHelp, Clock3, Crown, ExternalLink, Flame, Gauge, Globe2, History, Hotel, Loader2, LockKeyhole, Menu, Plane, Plus, Search, Settings2, ShieldCheck, Sparkles, Trash2, TrendingDown, Users, Wallet, X, Zap } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -15,40 +16,7 @@ type LocalOffer = {
   id: string; airline: string; airlineCode: string; origin: string; destination: string; departureDate: string; departureTime: string; arrivalTime: string; duration: string; stops: number; price: number; currency: string; cabin: string; baggage: string; bookingUrl: string; isBest: boolean; layoverCountry?: string;
 };
 
-const airportOptions = [
-  { code: "JFK", city: "New York", country: "United States", airport: "John F. Kennedy International" },
-  { code: "LAX", city: "Los Angeles", country: "United States", airport: "Los Angeles International" },
-  { code: "SFO", city: "San Francisco", country: "United States", airport: "San Francisco International" },
-  { code: "ORD", city: "Chicago", country: "United States", airport: "O'Hare International" },
-  { code: "YYZ", city: "Toronto", country: "Canada", airport: "Pearson International" },
-  { code: "YVR", city: "Vancouver", country: "Canada", airport: "Vancouver International" },
-  { code: "LHR", city: "London", country: "United Kingdom", airport: "Heathrow" },
-  { code: "CDG", city: "Paris", country: "France", airport: "Charles de Gaulle" },
-  { code: "AMS", city: "Amsterdam", country: "Netherlands", airport: "Schiphol" },
-  { code: "FRA", city: "Frankfurt", country: "Germany", airport: "Frankfurt Airport" },
-  { code: "MAD", city: "Madrid", country: "Spain", airport: "Adolfo Suárez Madrid–Barajas" },
-  { code: "FCO", city: "Rome", country: "Italy", airport: "Leonardo da Vinci–Fiumicino" },
-  { code: "IST", city: "Istanbul", country: "Türkiye", airport: "Istanbul Airport" },
-  { code: "DXB", city: "Dubai", country: "United Arab Emirates", airport: "Dubai International" },
-  { code: "DOH", city: "Doha", country: "Qatar", airport: "Hamad International" },
-  { code: "AUH", city: "Abu Dhabi", country: "United Arab Emirates", airport: "Zayed International" },
-  { code: "JNB", city: "Johannesburg", country: "South Africa", airport: "O.R. Tambo International" },
-  { code: "CAI", city: "Cairo", country: "Egypt", airport: "Cairo International" },
-  { code: "BOM", city: "Mumbai", country: "India", airport: "Chhatrapati Shivaji Maharaj" },
-  { code: "DEL", city: "New Delhi", country: "India", airport: "Indira Gandhi International" },
-  { code: "HND", city: "Tokyo", country: "Japan", airport: "Haneda" },
-  { code: "ICN", city: "Seoul", country: "South Korea", airport: "Incheon International" },
-  { code: "PEK", city: "Beijing", country: "China", airport: "Capital International" },
-  { code: "HKG", city: "Hong Kong", country: "Hong Kong", airport: "Hong Kong International" },
-  { code: "BKK", city: "Bangkok", country: "Thailand", airport: "Suvarnabhumi" },
-  { code: "SIN", city: "Singapore", country: "Singapore", airport: "Changi" },
-  { code: "SYD", city: "Sydney", country: "Australia", airport: "Kingsford Smith" },
-  { code: "AKL", city: "Auckland", country: "New Zealand", airport: "Auckland Airport" },
-  { code: "MEX", city: "Mexico City", country: "Mexico", airport: "Benito Juárez International" },
-  { code: "GRU", city: "São Paulo", country: "Brazil", airport: "Guarulhos International" },
-  { code: "EZE", city: "Buenos Aires", country: "Argentina", airport: "Ministro Pistarini" },
-  { code: "SCL", city: "Santiago", country: "Chile", airport: "Arturo Merino Benítez" },
-];
+/** Airport list (and destination dataset) lives in @shared/destinations. */
 
 const sampleOffers: LocalOffer[] = [
   { id: "sample-1", airline: "Virgin Atlantic", airlineCode: "VS", origin: "JFK", destination: "LHR", departureDate: "2026-10-29", departureTime: "19:30", arrivalTime: "07:25", duration: "6h 55m", stops: 0, price: 418, currency: "USD", cabin: "Economy", baggage: "1 carry-on", bookingUrl: "https://www.virginatlantic.com/", isBest: true },
@@ -186,6 +154,16 @@ function SeoContent() {
     <div className="seo-copy">
       <h2>Plan smarter with Fareloop guides</h2>
       <p>New to fare tracking? Read the <a href="/faq">cheap flights FAQ</a> for how price-drop alerts work, open the <a href="/tracker">deal tracker</a> to watch a route, or see what <a href="/paywall">Fareloop Premium</a> unlocks. Searching stays free — start with a popular route like New York to London.</p>
+      <p>
+        Planning a specific trip? Open a destination fare guide:{" "}
+        {DESTINATIONS.slice(0, 8).map((dest, index) => (
+          <span key={dest.slug}>
+            <a href={destinationPath(dest.slug)}>flights to {dest.city}</a>
+            {index < 7 ? " · " : ""}
+          </span>
+        ))}{" "}
+        — or browse <a href="/flights-to">all {DESTINATIONS.length} destinations</a>.
+      </p>
     </div>
   </section>;
 }
@@ -265,6 +243,23 @@ export default function Home() {
   const selectedTrackerRoute = trackerRoutes.find(route => route.id === selectedTrackerRouteId) ?? trackerRoutes[0];
 
   const performSearch = (event?: React.FormEvent) => { event?.preventDefault(); searchMutation.mutate({ origin, destination, departureDate, returnDate, passengers }); };
+  // Prefill the search from ?from= / ?to= query params (used by /flights-to/:slug CTAs)
+  // and kick off a live search when a valid code arrives.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const codes = new Set(airportOptions.map(item => item.code));
+    const from = (params.get("from") || "").toUpperCase();
+    const to = (params.get("to") || "").toUpperCase();
+    const nextOrigin = from && codes.has(from) ? from : "JFK";
+    const nextDestination = to && codes.has(to) ? to : "LHR";
+    if (nextOrigin !== "JFK") setOrigin(nextOrigin);
+    if (nextDestination !== "LHR") setDestination(nextDestination);
+    if (nextOrigin !== "JFK" || nextDestination !== "LHR") {
+      searchMutation.mutate({ origin: nextOrigin, destination: nextDestination, departureDate: "2026-10-29", returnDate: "2026-11-05", passengers: 1 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const requestPremium = () => { if (!isPremiumDemo) setPaywallOpen(true); else setView("tracker"); };
   const addTracked = (offerOrigin = origin, offerDestination = destination) => { if (!isPremiumDemo) return setPaywallOpen(true); addRoute.mutate({ origin: offerOrigin, destination: offerDestination, departDate: departureDate, returnDate, targetPrice: Math.round((offers[0]?.price ?? 450) * .95), alertChannel: "Telegram" }); };
   const openCheckout = () => checkout.mutate({ route: searchSummary });

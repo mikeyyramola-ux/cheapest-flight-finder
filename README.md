@@ -59,6 +59,8 @@ The Book now buttons fall back to a fixed Travelpayouts/Kiwi link until you conf
 
 Fareloop now uses server-side rendering for the initial HTML response. The root response contains the Fareloop title, a sub-160-character description, canonical URL, Open Graph and Twitter Card tags, SoftwareApplication JSON-LD, one H1, descriptive H2 sections, and visible copy explaining the product, pricing, supported regions, and affiliate disclosure. `robots.txt` and `sitemap.xml` are served at the site root by the Express server. There are currently no raster images in the public dashboard, so there are no image elements missing alt text; future images must use descriptive alt text.
 
+Beyond the core pages, the app ships a programmatic destination layer built from `shared/destinations.ts`: a `/flights-to` hub plus one `/flights-to/:slug` city page per airport in the dataset, each with unique SSR title/description, BreadcrumbList/TouristDestination/FAQPage JSON-LD, region-grouped internal links, and `/?from=&to=` search CTAs that land pre-filled (the Home search reads those query params on load). The sitemap lists every destination URL automatically. Search-console verification is env-gated — set `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`, and/or `YANDEX_SITE_VERIFICATION` to emit the matching `<meta>` tag — and `INDEXNOW_KEY` serves the IndexNow proof file at `/{key}.txt`. Submission steps, IndexNow pings, backlink targets, and the traffic math for the $100/week commission goal live in `docs-seo-growth.md`.
+
 Set these deployment variables to replace the temporary Manus-space canonical origin when a domain you own is connected:
 
 ```bash
