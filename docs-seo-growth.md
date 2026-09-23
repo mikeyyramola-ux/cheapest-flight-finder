@@ -44,6 +44,36 @@ raise outbound CTR with URL-prefilled search CTAs (shipped), and rank for
 - Month 2–3: destination pages start ranking on page 2–3, ~100–300 sessions/day.
 - Month 4–6: page 1 for long-tail "flights to {city}" queries, ~500–1,500 sessions/day → target zone.
 
+## 1b. Execution status (dated log — update when steps complete)
+
+**Baseline (22 Sept 2026):** `site:cheapest-flight-finder.vercel.app` on Google → **0 results**
+(never crawled: brand-new domain, zero referring links). Root cause of zero views.
+
+Done — 22 Sept 2026:
+
+- [x] **IndexNow live**: `INDEXNOW_KEY` set (64-hex, Vercel secret), `/{key}.txt` serves 200 and
+      echoes the key, **all 37 sitemap URLs submitted → HTTP 202** at `api.indexnow.org`
+      (Bing/DuckDuckGo/Naver/Seznam crawl from here within days).
+- [x] **GSC property verified** via HTML tag → `GOOGLE_SITE_VERIFICATION` env set + redeployed,
+      "Ownership verified" (URL-prefix property `https://cheapest-flight-finder.vercel.app/`).
+- [x] **Sitemap submitted in GSC**: `/sitemap.xml` → **Success, 37 pages discovered**, read same day.
+- [x] **Indexing requested (3/3 daily quota)**: `/`, `/flights-to`, `/faq` → "Indexing requested"
+      (priority crawl queue). New properties get a low ~3/day request quota.
+- [x] **robots.txt/canonical audit**: `Allow: /` for all crawlers (incl. AI bots), every page
+      self-canonicals to the Vercel origin (old Manus duplicate won't cannibalize).
+- [x] **GitHub backlinks live**: main repo made **PUBLIC** (secrets scan first: no `.env` history,
+      zero key patterns) → homepage field + README link the site; new profile README repo
+      `mikeyyramola-ux/mikeyyramola-ux` renders 8 links. Both pages `noindex: false`.
+
+Pending:
+
+- [ ] **Tomorrow (quota reset)**: URL-inspection request indexing for `/flights-to/new-york`,
+      `/flights-to/los-angeles`, then more destinations as daily quota allows (~3–10/day).
+- [ ] Optional: Bing Webmaster sign-in → *Import from Google Search Console* (IndexNow already
+      covers Bing's crawler; webmaster account only adds reporting). Yandex Webmaster likewise.
+- [ ] Expect first Google crawl/index within 24–72h of the requests + sitemap; watch
+      GSC *Pages* report and the weekly checklist below.
+
 ## 2. Env vars to add (Vercel → Settings → Environment Variables)
 
 Server-side (SSR head / sitemap route):
