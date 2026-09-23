@@ -65,14 +65,24 @@ Done — 22 Sept 2026:
       zero key patterns) → homepage field + README link the site; new profile README repo
       `mikeyyramola-ux/mikeyyramola-ux` renders 8 links. Both pages `noindex: false`.
 
-Pending:
+**Update — 23 Sept 2026:**
 
-- [ ] **Tomorrow (quota reset)**: URL-inspection request indexing for `/flights-to/new-york`,
-      `/flights-to/los-angeles`, then more destinations as daily quota allows (~3–10/day).
+- [x] 🎉 **HOME PAGE INDEXED ON GOOGLE** — URL Inspection → "URL is on Google /
+      Page is indexed" (verified twice with exact-URL match). Request → indexed in <24h.
+- [x] **`/flights-to/new-york`** → "Indexing requested" (priority crawl queue).
+- [x] **Quota behavior learned**: the indexing-request quota is a **rolling ~24h window of
+      ~3 accepted requests**, *not* a midnight reset (yesterday's 3 + today's 1st filled it;
+      the 2nd request today hit "Quota exceeded"). Space requests out; **inspection lookups
+      are free** (unlimited status checks, only *Request indexing* counts).
+- [ ] **Retry when window frees up (later today / tomorrow)**: `/flights-to/los-angeles`
+      (was blocked mid-request), then `san-francisco`, `chicago`, `toronto`… as slots allow —
+      low urgency: the sitemap's 37 URLs are already submitted and will be crawled anyway.
+- [ ] `/flights-to` + `/faq` requests still pending crawl ("URL is unknown to Google" as of
+      23 Sept — normal; re-check via free lookup in 1–3 days).
 - [ ] Optional: Bing Webmaster sign-in → *Import from Google Search Console* (IndexNow already
       covers Bing's crawler; webmaster account only adds reporting). Yandex Webmaster likewise.
-- [ ] Expect first Google crawl/index within 24–72h of the requests + sitemap; watch
-      GSC *Pages* report and the weekly checklist below.
+- [ ] Watch GSC *Pages* report: expect "Discovered – not indexed" → "Indexed" waves as the
+      sitemap gets worked through; then the weekly checklist below kicks in.
 
 ## 2. Env vars to add (Vercel → Settings → Environment Variables)
 
