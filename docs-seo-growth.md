@@ -83,10 +83,18 @@ Done — 22 Sept 2026:
       "Submitting request") and only then gets rejected with `[alertdialog] Quota exceeded`
       when the rolling window is full. Failed attempts appear to consume time; **do not
       hammer retries** — wait for the window (≈24h after the last accepted requests).
-- [ ] **Retry when window frees up (≈24h after yesterday's accepted requests / tomorrow)**:
-      `/flights-to/los-angeles` (rejected twice at submit), then `san-francisco`, `chicago`,
-      `toronto`… as slots allow — low urgency: the sitemap's 37 URLs are already submitted
-      and will be crawled anyway.
+- [ ] **Next window**: `/flights-to/san-francisco` (rejected this round — quota gave exactly
+      one slot), then `chicago`, `toronto`, `vancouver`… — one request per window, do not hammer.
+
+**Update 2 — 23 Sept 2026 (later):**
+
+- [x] ✅ **`/flights-to/los-angeles` accepted** — the rolling window freed exactly **one** slot
+      this round; request submitted to the priority crawl queue.
+- [x] `/flights-to/san-francisco` → rejected (Quota exceeded) right after; stopped retries.
+- [x] Sweep: `/flights-to` + `/faq` still "URL is unknown to Google" (day 2 in queue — normal;
+      home and new-york set the fast precedent, others catch up via sitemap).
+- [x] GSC *Pages* aggregate report still "Processing data – check again in a day or so"
+      (property is <48h old; aggregates populate on the daily boundary).
 - [ ] Optional: Bing Webmaster sign-in → *Import from Google Search Console* (IndexNow already
       covers Bing's crawler; webmaster account only adds reporting). Yandex Webmaster likewise.
 - [ ] Watch GSC *Pages* report: expect "Discovered – not indexed" → "Indexed" waves as the
