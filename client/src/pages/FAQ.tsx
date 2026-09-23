@@ -1,7 +1,7 @@
 import { ArrowRight } from "lucide-react";
 import { Link } from "wouter";
 
-type FaqItem = { q: string; a: string };
+type FaqItem = { q: string; a: string; link?: { href: string; label: string } };
 
 /** Plain-text Q&A pairs. Rendered on the page and reused for FAQPage JSON-LD. */
 const FAQ_ITEMS: FaqItem[] = [
@@ -41,6 +41,29 @@ const FAQ_ITEMS: FaqItem[] = [
     q: "Is searching flights on Fareloop free?",
     a: "Yes. The flight finder is free to use: search routes, compare fares, sort by cheapest or fastest, and open partner booking pages without paying anything. Premium is optional and only adds tracking, history, and alerts.",
   },
+  {
+    q: "What is the cheapest month to fly?",
+    a: "Across most routes, January and February are the cheapest months to fly, with September and October close behind, while July, August, and the December holidays are the priciest. The right month depends on the destination — June is low season in Sydney but peak season in Paris — so check the cheapest-months table for the city you are flying to.",
+    link: { href: "/flights-to", label: "cheapest-months table for every city" },
+  },
+  {
+    q: "How do I find flight price drops?",
+    a: "Save the route in the Fareloop deal tracker with a target price, then watch its 90-day trend: when the current fare drops meaningfully below the recent reference price, that is the signal to book. Price drops rarely announce themselves, so an alert beats re-checking the same search every day — fares can move while you sleep.",
+    link: { href: "/tracker", label: "open the deal tracker" },
+  },
+  {
+    q: "Do flight prices drop closer to the departure date?",
+    a: "Usually not. Fares tend to climb in the final weeks before departure as the remaining seats go to travelers with little choice of date. The reliable window is about one to three months out for shorter routes and two to six months for long-haul, with airline seat sales as the main exception — which is exactly what the 90-day trend is there to catch.",
+  },
+  {
+    q: "Which days of the week are the cheapest to fly?",
+    a: "Tuesday, Wednesday, and Saturday departures are consistently the cheapest, because business traffic and weekend leisure demand cluster on Monday, Thursday, Friday, and Sunday. The day you fly matters far more than the day you buy, so if your dates are flexible, move the departure itself before anything else.",
+  },
+  {
+    q: "Where can I see the cheapest months to fly for each city?",
+    a: "Every destination guide pairs a month-by-month cheapest-window strip with airport notes and a pre-filled search. The strips come from each city's own season notes — nothing is invented — so pick your window there, then confirm the live fare yourself in the flight finder.",
+    link: { href: "/flights-to", label: "browse all destination guides" },
+  },
 ];
 
 const faqJsonLd = JSON.stringify({
@@ -49,7 +72,8 @@ const faqJsonLd = JSON.stringify({
   mainEntity: FAQ_ITEMS.map(item => ({
     "@type": "Question",
     name: item.q,
-    acceptedAnswer: { "@type": "Answer", text: item.a },
+    // Keep the JSON-LD answer identical to the visible paragraph text (answer + link label).
+    acceptedAnswer: { "@type": "Answer", text: item.link ? `${item.a} ${item.link.label}` : item.a },
   })),
 }).replace(/</g, "\\u003c");
 
@@ -69,7 +93,10 @@ export default function FAQ() {
           {FAQ_ITEMS.map(item => (
             <div className="seo-copy" key={item.q}>
               <h2>{item.q}</h2>
-              <p>{item.a}</p>
+              <p>
+                {item.a}
+                {item.link && <> <Link href={item.link.href}>{item.link.label}</Link></>}
+              </p>
             </div>
           ))}
         </section>

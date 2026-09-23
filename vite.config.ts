@@ -150,7 +150,19 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+// The Manus runtime plugin inlines a ~367KB editor-overlay script into the HTML of
+// every build (it bundles its own React copy for the Manus preview UI). Nothing in
+// client/ or server/ reads the globals it defines — hydration runs entirely from the
+// emitted /assets entry bundle — so it is dev-only tooling: keep it for local and
+// preview sessions, exclude it from production builds where it dominated the
+// homepage payload (dist/public/index.html: 368KB -> ~1KB of template).
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  ...(process.env.NODE_ENV === "production" ? [] : [vitePluginManusRuntime()]),
+  vitePluginManusDebugCollector(),
+];
 
 export default defineConfig({
   plugins,

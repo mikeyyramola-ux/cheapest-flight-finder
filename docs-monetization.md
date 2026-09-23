@@ -104,7 +104,47 @@ and Rentalcars endpoints on the `monitoring.partners` tRPC route.
 
 ---
 
-## 6. Key sources
+## 6. CJ Affiliate network — applications log
+
+Account: superuser VIPIN Ramola · CID 8079657 · member 7767794 · W-8BEN filed.
+Property used: **Fareloop – Cheap Flight Finder** →
+`https://cheapest-flight-finder.vercel.app` (models: Content/Blog/Media +
+Product Comparison; status Active [Primary]). Property #1 ("Mingle",
+101889008) kept untouched.
+
+Applied 2026-09-23 (search via the **Keyword(s)** box + exact **Search** button —
+the Advertiser(s) box corrupts input; result rows are `div.adv-row` carrying EPC
+text; confirmation opens a **new tab titled "Application submitted for review"
+that AUTO-CLOSES** — read fast; a decline returns a tab titled
+"Application declined"):
+
+| Advertiser | ID | Result |
+|---|---|---|
+| Trip.com (Global) | 4368684 | submitted for review |
+| Priceline.com Europe | 4441431 | submitted for review |
+| Booking.com North America | 7864295 | submitted for review |
+| Booking.com APAC | 7854081 | submitted for review |
+| Whimstay | 7625430 | submitted for review |
+| Priceline.com (Hotel) | 1464653 | **declined by advertiser** (final) |
+| Booking.com United Kingdom | 4297311 | blocked — Apply button absent |
+| Booking.com Australia | 7864353 | blocked — Apply button absent |
+
+Earlier pending (first CJ session): Groupon ×2 + GetYourGuide.
+**Pending total: 8.**
+
+UK/AU blocker, verbatim: *"The superuser on this account must complete the
+onboarding checklist and activate the account before you can apply to join
+advertiser programs."* → Network Profile opens at
+`/member/app/publisher/account/network-profile/general`; finish every
+non-agreement field, hand any agreement/attestation tick to the owner.
+
+Next wave after the checklist: **CheapAir, CheapOair, JustFly** (P0 flight
+OTAs), then Expedia / Agoda / Rentalcars / Tripadvisor (P1). Not on CJ at all:
+Kiwi, Tiqets, Airalo, KAYAK, Omio, Klook, Trainline — keep via TravelPayouts.
+
+---
+
+## 7. Key sources
 
 - TP signup/token: support.travelpayouts.com/hc/en-us/articles/13024069738386, /11395179019538
 - Widgets (live format + deprecation notice): support…/8505942823954, /360027634052

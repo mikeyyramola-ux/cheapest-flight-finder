@@ -36,7 +36,7 @@ Equivalent view — outbound clicks are the real lever:
 
 Levers that reduce the traffic needed: add hotel + activity affiliate links (higher EPC),
 raise outbound CTR with URL-prefilled search CTAs (shipped), and rank for
-"flights to {city}" long-tail pages (shipped: `/flights-to/:slug` ×32).
+"flights to {city}" long-tail pages (shipped: `/flights-to/:slug` ×50).
 
 **Honest ramp expectation** for a domain weeks old:
 
@@ -164,11 +164,13 @@ Invoke-RestMethod -Method Post -Uri "https://api.indexnow.org/indexnow" `
 ## 4. Shipped SEO architecture (already live)
 
 - Distinct per-route titles/descriptions/OG tags, FAQPage + SoftwareApplication + WebSite JSON-LD.
-- `/faq` content page, `/flights-to` hub, **32 programmatic `/flights-to/:slug` city pages** with
+- `/faq` content page, `/flights-to` hub, **50 programmatic `/flights-to/:slug` city pages** with
   unique body copy, BreadcrumbList + TouristDestination + FAQPage JSON-LD, region-grouped internal links.
-- Dynamic `sitemap.xml` (37 URLs), robots.txt, soft-404 → real 404 + `noindex`.
+- Dynamic `sitemap.xml` (55 URLs), robots.txt, soft-404 → real 404 + `noindex`.
 - URL-prefilled search CTAs: `/?from=JFK&to=LHR` lands with the search already run.
 - Internal linking: Home ↔ FAQ ↔ hub ↔ every destination page ↔ prefill CTAs back to search.
+- "Cheapest months to fly" strip on every destination page + full matrix table on the hub, derived
+  only from the static season notes in `shared/destinations.ts` (no invented prices).
 
 ## 5. Backlink & distribution targets (off-site work, highest leverage now)
 
@@ -208,4 +210,4 @@ Anchor-text mix: mostly branded ("Fareloop", "Fareloop flight tracker") + some e
    the same dataset × `POPULAR_ORIGIN_HUBS`.
 2. **Blog**: "cheapest month to fly to {city}" posts with 90-day trend data — link magnets.
 3. **Hotel + activity links** on destination pages (Booking/Viator/GYG) — biggest EPC jump.
-4. Expand the airport dataset from 32 → 100+ cities once the template is proven in GSC.
+4. Expand the airport dataset from 50 → 100+ cities once the template is proven in GSC.

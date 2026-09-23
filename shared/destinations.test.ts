@@ -5,10 +5,12 @@ import {
   DESTINATION_REGIONS,
   POPULAR_ORIGIN_HUBS,
   airportOptions,
+  cheapestMonthLabel,
   destinationByCode,
   destinationBySlug,
   destinationPath,
   hubLabel,
+  monthLabel,
 } from "./destinations";
 
 describe("destination dataset", () => {
@@ -46,5 +48,26 @@ describe("destination dataset", () => {
     expect(Object.keys(airportOptions[0] ?? {}).sort()).toEqual(["airport", "city", "code", "country"]);
     for (const hub of POPULAR_ORIGIN_HUBS) expect(destinationByCode(hub)).toBeTruthy();
     expect(destinationBySlug("not-a-city")).toBeUndefined();
+  });
+
+  it("marks honest, valid cheapest-month windows for every city", () => {
+    for (const dest of DESTINATIONS) {
+      expect(dest.cheapestMonths.length, `${dest.city} needs a window`).toBeGreaterThanOrEqual(1);
+      expect(dest.cheapestMonths.length, `${dest.city} window should stay meaningful`).toBeLessThanOrEqual(10);
+      expect(new Set(dest.cheapestMonths).size, `${dest.city} months must be unique`).toBe(dest.cheapestMonths.length);
+      for (const month of dest.cheapestMonths) {
+        expect(month, `${dest.city} month out of range: ${month}`).toBeGreaterThanOrEqual(1);
+        expect(month, `${dest.city} month out of range: ${month}`).toBeLessThanOrEqual(12);
+      }
+    }
+  });
+
+  it("compresses month windows into readable labels", () => {
+    expect(monthLabel([3, 4, 5, 9, 10, 11])).toBe("Mar–May, Sep–Nov");
+    expect(monthLabel([1, 2])).toBe("Jan–Feb");
+    expect(monthLabel([6, 7, 8, 9, 10, 11])).toBe("Jun–Nov");
+    expect(monthLabel([1])).toBe("Jan");
+    expect(monthLabel([12, 1, 2])).toBe("Jan–Feb, Dec");
+    expect(cheapestMonthLabel(destinationByCode("LHR")!)).toBe("Jan–Mar, May–Jun, Oct–Nov");
   });
 });

@@ -152,6 +152,22 @@ function SeoContent() {
       <p>Use Flights for global route discovery, Stays for live hotel searches, and Cars for live rental searches. Fareloop does not invent hotel or car inventory: those searches open partner results with your location and dates. Flight booking links may be affiliate links, which means Fareloop can earn a commission if you book through a partner at no additional cost to you. That revenue helps support route coverage, monitoring, and future fare tools.</p>
     </div>
     <div className="seo-copy">
+      <h2>Cheapest months to fly</h2>
+      <p>
+        Fares follow the calendar: the shoulder months between peak season and school holidays are almost always cheaper than July, August, and the
+        December–January weeks — but the right window flips with the hemisphere, since June is low season in Sydney and high season in Paris. Each
+        Fareloop guide publishes an honest month-by-month cheapest-window strip for its city:{" "}
+        {DESTINATIONS.slice(8, 14).map((dest, index) => (
+          <span key={dest.slug}>
+            <Link href={destinationPath(dest.slug)}>flights to {dest.city}</Link>
+            {index < 5 ? " · " : ""}
+          </span>
+        ))}{" "}
+        — then work flexibly inside that window: shifting a trip by two or three days within the cheapest months is the simplest date-flex move, and the
+        route's 90-day trend tells you when to actually book. See the <Link href="/flights-to">cheapest-months table for every destination</Link>.
+      </p>
+    </div>
+    <div className="seo-copy">
       <h2>Plan smarter with Fareloop guides</h2>
       <p>New to fare tracking? Read the <Link href="/faq">cheap flights FAQ</Link> for how price-drop alerts work, open the <Link href="/tracker">deal tracker</Link> to watch a route, or see what <Link href="/paywall">Fareloop Premium</Link> unlocks. Searching stays free — start with a popular route like New York to London.</p>
       <p>

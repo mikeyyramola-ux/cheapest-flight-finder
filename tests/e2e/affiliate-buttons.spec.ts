@@ -58,8 +58,8 @@ test.describe("hydrated affiliate booking buttons", () => {
     await expect(page.getByText("700+ airlines across 190+ countries", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: /close paywall/i }).evaluate((element) => (element as HTMLButtonElement).click());
-    await expect(page.getByLabel("Flying from").locator("option")).toHaveCount(32);
-    await expect(page.getByLabel("Flying to").locator("option")).toHaveCount(32);
+    await expect(page.getByLabel("Flying from").locator("option")).toHaveCount(50);
+    await expect(page.getByLabel("Flying to").locator("option")).toHaveCount(50);
   });
 
   test("keeps cheapest-first priority while allowing fastest sorting", async ({ page }) => {

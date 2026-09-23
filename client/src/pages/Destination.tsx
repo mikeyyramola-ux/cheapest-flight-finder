@@ -4,7 +4,9 @@ import NotFound from "@/pages/NotFound";
 import {
   DESTINATIONS,
   DESTINATION_REGIONS,
+  MONTH_ABBRS,
   POPULAR_ORIGIN_HUBS,
+  cheapestMonthLabel,
   destinationBySlug,
   destinationPath,
   hubLabel,
@@ -16,11 +18,15 @@ function destinationFaqs(dest: Destination) {
   return [
     {
       q: `What is the cheapest time to fly to ${dest.city}?`,
-      a: dest.season,
+      a: `The cheapest months to fly to ${dest.city} are usually ${cheapestMonthLabel(dest)}. ${dest.season}`,
     },
     {
       q: `Which airport do flights to ${dest.city} land at?`,
       a: `Flights to ${dest.city} use ${dest.airport} (${dest.code}) in ${dest.country}. ${dest.blurb}`,
+    },
+    {
+      q: `How far in advance should I book flights to ${dest.city}?`,
+      a: `Aim for about one to three months ahead on shorter routes and two to six months for long-haul flights to ${dest.city}, and add a month if you are traveling in a peak window. Inside that window, watch the route's 90-day trend on Fareloop and book when the fare sits in its lowest range instead of guessing a magic booking day.`,
     },
     {
       q: `How do I find cheap flights to ${dest.city} on Fareloop?`,
@@ -59,6 +65,18 @@ const placeJsonLd = (dest: Destination) =>
     description: dest.blurb,
     address: { "@type": "PostalAddress", addressCountry: dest.country },
   }).replace(/</g, "\\u003c");
+
+/** 12-cell seasonal strip: highlighted cells are the destination's cheapest months (static guidance, never prices). */
+function MonthStrip({ dest }: { dest: Destination }) {
+  const cheap = new Set(dest.cheapestMonths);
+  return (
+    <span className="month-strip" role="img" aria-label={`Cheapest months to fly to ${dest.city}: ${cheapestMonthLabel(dest)}`}>
+      {MONTH_ABBRS.map((abbr, index) => (
+        <span key={abbr} className={`month-cell${cheap.has(index + 1) ? " is-cheap" : ""}`}>{abbr}</span>
+      ))}
+    </span>
+  );
+}
 
 /** Region-grouped internal links to every other destination page. */
 function DestinationDirectory({ currentSlug }: { currentSlug?: string }) {
@@ -119,6 +137,34 @@ export function DestinationHub() {
               watch the 90-day trend before you book. Searching is free, and Fareloop never adds a markup to the fare you see.
             </p>
           </div>
+          <div className="seo-copy seo-block-wide">
+            <h2>Cheapest months to fly — every destination</h2>
+            <p>
+              A month-by-month view of when flights to each city are typically cheapest, distilled from each guide's own season notes. These are honest
+              seasonal heuristics — Fareloop never publishes invented prices — so use the highlighted window as your starting point, shift your dates
+              inside it, and confirm the live fare with a search.
+            </p>
+            <div className="table-scroll">
+              <table className="month-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Destination</th>
+                    <th scope="col">Region</th>
+                    <th scope="col">Cheapest months to fly</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {DESTINATIONS.map(dest => (
+                    <tr key={dest.slug}>
+                      <td><Link href={destinationPath(dest.slug)}>Flights to {dest.city} ({dest.code})</Link></td>
+                      <td>{dest.region}</td>
+                      <td>{cheapestMonthLabel(dest)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
           <DestinationDirectory />
         </section>
         <footer className="faq-footer">
@@ -164,6 +210,16 @@ export default function DestinationPage() {
             <p>{dest.season}</p>
           </div>
           <div className="seo-copy">
+            <h2>Cheapest months to fly to {dest.city}</h2>
+            <MonthStrip dest={dest} />
+            <p>
+              Seasonal guidance from this guide — never a fabricated price. The cheapest months to fly to {dest.city} are usually{" "}
+              <strong className="month-strong">{cheapestMonthLabel(dest)}</strong>; the highlighted cells mark that window and everything else sits in the
+              typical band. Shift your dates inside the highlighted months, then compare on the <Link href={`/?to=${dest.code}`}>flight finder for {dest.city}</Link>{" "}
+              — or watch the route's 90-day trend and book when the curve dips.
+            </p>
+          </div>
+          <div className="seo-copy">
             <h2>Airports and arrival</h2>
             <p>
               Flights to {dest.city} arrive at {dest.airport} ({dest.code}), serving {dest.country} in {dest.region}. Compare fares against nearby
@@ -186,7 +242,7 @@ export default function DestinationPage() {
             <h2>{dest.city} flight questions</h2>
             {faqs.map(item => (
               <div key={item.q}>
-                <h2>{item.q}</h2>
+                <h3>{item.q}</h3>
                 <p>{item.a}</p>
               </div>
             ))}

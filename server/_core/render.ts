@@ -4,7 +4,7 @@ import { type Server } from "http";
 import path from "path";
 import { pathToFileURL } from "node:url";
 import superjson from "superjson";
-import { destinationBySlug, DESTINATIONS, type Destination } from "@shared/destinations";
+import { destinationBySlug, cheapestMonthLabel, DESTINATIONS, type Destination } from "@shared/destinations";
 
 type HeadMeta = {
   title: string;
@@ -54,7 +54,7 @@ const ROUTE_META: Record<string, HeadMeta> = {
 function destinationHead(dest: Destination, pathname: string): HeadMeta {
   return {
     title: `Cheap Flights to ${dest.city} (${dest.code}) – Fares & Alerts | Fareloop`,
-    description: `Planning a trip to ${dest.city}? Compare cheap flights to ${dest.airport} (${dest.code}), watch the 90-day fare trend, and get price-drop alerts. ${dest.season}`,
+    description: `Cheap flights to ${dest.city} (${dest.code}): ${cheapestMonthLabel(dest)} are the cheapest months to fly. Watch the 90-day fare trend and get price-drop alerts.`,
     keywords: `flights to ${dest.city}, cheap flights to ${dest.city}, ${dest.code} flights, ${dest.airport}, flights to ${dest.country}, ${dest.city} airfare`,
     canonicalPath: pathname,
   };
@@ -94,10 +94,23 @@ const escapeHtml = (value: string) => value
   .replace(/"/g, "&quot;")
   .replace(/'/g, "&#39;");
 
+/**
+ * Cut text to `max` characters on a word boundary so SERP tags never end mid-word
+ * (a hard slice at 159 previously truncated destination descriptions mid-token).
+ * Trailing punctuation/whitespace is trimmed so the result ends on a clean word.
+ */
+function clipOnWord(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max + 1);
+  const boundary = cut.lastIndexOf(" ");
+  return (boundary > 0 ? cut.slice(0, boundary) : clean.slice(0, max)).replace(/[\s.,;:!?–—-]+$/, "");
+}
+
 function buildHeadTags(head: HeadMeta) {
-  const title = escapeHtml(head.title.slice(0, 70));
-  const description = escapeHtml(head.description.replace(/\s+/g, " ").trim().slice(0, 159));
-  const keywords = escapeHtml((head.keywords || DEFAULT_KEYWORDS).slice(0, 240));
+  const title = escapeHtml(clipOnWord(head.title, 70));
+  const description = escapeHtml(clipOnWord(head.description, 155));
+  const keywords = escapeHtml(clipOnWord(head.keywords || DEFAULT_KEYWORDS, 240));
   const canonical = head.canonicalPath ? `${CANONICAL_ORIGIN}${head.canonicalPath}` : undefined;
   const tags = [
     `<title>${title}</title>`,
@@ -147,7 +160,7 @@ function buildHeadTags(head: HeadMeta) {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: SITE_NAME,
-    url: CANONICAL_ORIGIN,
+    url: `${CANONICAL_ORIGIN}/`,
     inLanguage: "en",
   }).replace(/</g, "\\u003c")}</script>`);
   return tags.join("\n");
@@ -194,4 +207,4 @@ function templateFallback() {
   return "<!doctype html><html lang=\"en\"><head><!--app-head--></head><body><div id=\"root\"><!--app-html--></div></body></html>";
 }
 
-export { renderWithSsr, type HeadMeta };
+export { renderWithSsr, destinationHead, clipOnWord, type HeadMeta };
