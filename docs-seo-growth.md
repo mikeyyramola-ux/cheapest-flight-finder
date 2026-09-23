@@ -74,11 +74,19 @@ Done — 22 Sept 2026:
       ~3 accepted requests**, *not* a midnight reset (yesterday's 3 + today's 1st filled it;
       the 2nd request today hit "Quota exceeded"). Space requests out; **inspection lookups
       are free** (unlimited status checks, only *Request indexing* counts).
-- [ ] **Retry when window frees up (later today / tomorrow)**: `/flights-to/los-angeles`
-      (was blocked mid-request), then `san-francisco`, `chicago`, `toronto`… as slots allow —
-      low urgency: the sitemap's 37 URLs are already submitted and will be crawled anyway.
-- [ ] `/flights-to` + `/faq` requests still pending crawl ("URL is unknown to Google" as of
-      23 Sept — normal; re-check via free lookup in 1–3 days).
+- [x] 🎉 **`/flights-to/new-york` INDEXED** — requested the same morning, "Page is indexed"
+      within hours. Priority-queue requests are processing fast (<24h for home, hours here).
+- [x] Status sweep (free lookups): `/flights-to` → "URL is unknown to Google" (queued),
+      `/faq` → "URL is unknown to Google" (queued). GSC *Pages* aggregate report shows
+      "Processing data – check again in a day or so" (normal for a new property).
+- [x] Quota detail: the request runs the full pipeline (live-URL test **passes** →
+      "Submitting request") and only then gets rejected with `[alertdialog] Quota exceeded`
+      when the rolling window is full. Failed attempts appear to consume time; **do not
+      hammer retries** — wait for the window (≈24h after the last accepted requests).
+- [ ] **Retry when window frees up (≈24h after yesterday's accepted requests / tomorrow)**:
+      `/flights-to/los-angeles` (rejected twice at submit), then `san-francisco`, `chicago`,
+      `toronto`… as slots allow — low urgency: the sitemap's 37 URLs are already submitted
+      and will be crawled anyway.
 - [ ] Optional: Bing Webmaster sign-in → *Import from Google Search Console* (IndexNow already
       covers Bing's crawler; webmaster account only adds reporting). Yandex Webmaster likewise.
 - [ ] Watch GSC *Pages* report: expect "Discovered – not indexed" → "Indexed" waves as the
