@@ -86,6 +86,19 @@ Done — 22 Sept 2026:
 - [ ] **Next window**: `/flights-to/san-francisco` (rejected this round — quota gave exactly
       one slot), then `chicago`, `toronto`, `vancouver`… — one request per window, do not hammer.
 
+**Update 3 — 23 Sept 2026 (round 3):**
+
+- [x] ✅ **`/flights-to/san-francisco` accepted** — window freed exactly one slot again
+      (confirmed pattern: ~1 request per rolling window).
+- [x] `/flights-to/chicago` → rejected (Quota exceeded) right after; stopped retries.
+- [x] 🎉 **`/faq` INDEXED** — third indexed page (after `/` and `/flights-to/new-york`).
+- [x] Sweep: `/flights-to` (day 3) + `/flights-to/los-angeles` (day 2) still
+      "URL is unknown to Google" — in queue, sitemap-assisted.
+- [x] GSC *Pages* + *Performance* aggregate reports both still "Processing data"
+      (property <72h old; Performance shows "Last update: 6 hours ago").
+- [x] External `site:` search still returns 0 — lags behind GSC for new sites;
+      GSC exact-URL checks are authoritative (3 pages confirmed indexed there).
+
 **Update 2 — 23 Sept 2026 (later):**
 
 - [x] ✅ **`/flights-to/los-angeles` accepted** — the rolling window freed exactly **one** slot
