@@ -142,6 +142,59 @@ Next wave after the checklist: **CheapAir, CheapOair, JustFly** (P0 flight
 OTAs), then Expedia / Agoda / Rentalcars / Tripadvisor (P1). Not on CJ at all:
 Kiwi, Tiqets, Airalo, KAYAK, Omio, Klook, Trainline — keep via TravelPayouts.
 
+### Round 5 — 24 Sept 2026 (browser + CJ channel recovered)
+
+**Corrections found this round:** the earlier "Pending total: 8" was an
+undercount — the authoritative *Status: Pending Applications* filter (dashboard
+→ "Review Pending Applications") showed **31 Results** before this round
+(Agoda EU/UK, Booking ×8 regions **incl. UK**, Expedia ×6 **incl. Expedia Inc**,
+Hotels.com ×6, Vrbo ×2, Trip.com, Priceline EU, Groupon, GetYourGuide US …).
+**Whimstay 7625430 was never actually pending** despite the 23 Sept log line —
+it submitted successfully this round. Booking.com UK 4297311 is **pending**
+(blocker has cleared); Booking.com AU 7864353 still absent.
+
+Applied 2026-09-24 — **18 submitted** (one-click flow; no agreement checkbox
+involved in any of these):
+
+| Advertiser | ID | Result |
+|---|---|---|
+| CheapOair | 2515404 | submitted for review |
+| CheapOair.ca | 5018271 | submitted for review |
+| Cheapflightsfares | 6061620 | submitted for review |
+| CheapTickets (Travel entity) | 7667121 | submitted for review |
+| Cheapvuelos | 7947783 | submitted for review |
+| EconomyBookings.com | 6385999 | submitted for review |
+| AVIANCA WORLDWIDE | 5075736 | submitted for review |
+| Suntransfers.com | 4727627 | submitted for review |
+| Air India | 7008093 | submitted for review |
+| Air Serbia | 5289333 | submitted for review |
+| Austrian Airlines – US | 5320930 | submitted for review |
+| Booking.com Brazil | 7854073 | submitted for review |
+| Booking.com LATAM | 7864342 | submitted for review |
+| Arangrant | 7226122 | submitted for review |
+| Airport Parking Reservations | 3102643 | submitted for review |
+| Aerolite (luggage) | 7218691 | submitted for review |
+| airhelp.com INT | 5185191 | submitted for review |
+| Whimstay | 7625430 | submitted for review (re-send — see correction) |
+
+Declined this round: **JUSTFLY 4584986**, **AirportRentalCars.com 3677020**
+(final — advertiser decision).
+
+Owner gates (special-terms page titled **"Join Advertiser"** with an *Accept and
+Apply* button = legal agreement → never clicked by the agent): **CheapTickets
+4861279** (Expedia Group T&C), **Brussels Airlines US 7517515**, **Best Western
+1686526**. Owner: open Find Advertisers → search the name → Apply → scroll the
+terms → press *Accept and Apply* if agreed.
+
+Not on CJ (keyword searches returned 0 / no such advertiser): **CheapAir,
+Rentalcars.com, Tripadvisor** — keep via TravelPayouts.
+
+**Final pending: 47 Results** (31 → 47 net; all 18 of today's IDs spot-verified
+in the filter). Recipe addendum: confirmation tabs may be **reused across
+applies** — always match `advertiserId=` in the tab URL, not just the title;
+hidden `a.text-error` anchors ("Please complete your Network Profile…" /
+"…onboarding checklist…") exist in every row's DOM — display state, not status.
+
 ---
 
 ## 7. Key sources
