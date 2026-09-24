@@ -51,7 +51,7 @@ raise outbound CTR with URL-prefilled search CTAs (shipped), and rank for
 
 Done — 22 Sept 2026:
 
-- [x] **IndexNow live**: `INDEXNOW_KEY` set (64-hex, Vercel secret), `/{key}.txt` serves 200 and
+- [x] **IndexNow live**: `INDEXNOW_KEY` set (32-char hex, Vercel secret), `/{key}.txt` serves 200 and
       echoes the key, **all 37 sitemap URLs submitted → HTTP 202** at `api.indexnow.org`
       (Bing/DuckDuckGo/Naver/Seznam crawl from here within days).
 - [x] **GSC property verified** via HTML tag → `GOOGLE_SITE_VERIFICATION` env set + redeployed,
@@ -112,6 +112,30 @@ Done — 22 Sept 2026:
       covers Bing's crawler; webmaster account only adds reporting). Yandex Webmaster likewise.
 - [ ] Watch GSC *Pages* report: expect "Discovered – not indexed" → "Indexed" waves as the
       sitemap gets worked through; then the weekly checklist below kicks in.
+
+**Update 4 — 24 Sept 2026 (round 4):**
+
+- [x] ✅ **Deployed `f7717ff` → production**: destination-pages release grew the sitemap
+      **37 → 55 `<loc>` URLs**, homepage slimmed **~398KB → 44,331 bytes** (Manus remnant gone),
+      "Cheapest month" content block live on `/` and `/faq`; all markers re-verified on prod.
+- [x] ✅ **E2E 17/17 passed against prod** (new `seo-heads` regression spec included; frame-timing
+      scroll 47ms vs idle 44ms, search button 301ms, sorts 40–57ms). **Lesson:** the
+      `ui-transitions` frame assertion (`frames > 20`) is *load-sensitive* — it fails only when
+      parallel automation runs alongside; run timing specs isolated (`--workers=1`, nothing else).
+- [x] ✅ **IndexNow resubmitted all 55 URLs → HTTP 200** at `api.indexnow.org`. Two gotchas
+      pinned: key file is served at **`/{key}.txt`** (not `/.indexnow-key.txt`), and the POST
+      body must be built with `ConvertTo-Json` — PowerShell single-quoted `'{\"…'` bodies ship
+      literal backslashes and get HTTP 400.
+- [x] `INDEXNOW_KEY` doc corrected: 64-hex → **32-char hex** (matches the real key format /
+      `uuid4().hex` guidance above).
+- [ ] ⛔ **GSC `/flights-to/chicago` inspection blocked**: the URL-inspect route served a
+      **Google reCAPTCHA** — per policy automation never touches CAPTCHAs; owner must solve it
+      when convenient. Then resume: chicago → sweeps of the 50 new destination URLs →
+      scorecard vs the 55-URL sitemap (inspection lookups are free).
+- [ ] **CJ Affiliate round logged** in `docs-monetization.md` §6: **8 applications pending**
+      (5 submitted this round — Trip.com, Priceline Europe, Booking NA + APAC, Whimstay),
+      Priceline Hotel declined; Booking UK/AU gated by CJ's onboarding-checklist activation.
+      Remaining P0 wave (CheapOair/CheapAir/JustFly…) queued behind CJ session recovery.
 
 ## 2. Env vars to add (Vercel → Settings → Environment Variables)
 
