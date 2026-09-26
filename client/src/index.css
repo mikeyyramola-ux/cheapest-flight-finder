@@ -180,3 +180,30 @@ button:disabled { cursor: wait; opacity: .68; }
 .month-table td:first-child { white-space:normal; }
 @media (max-width: 850px) { .seo-content { grid-template-columns:1fr; gap:22px; padding:26px 18px; } .month-cell { min-width:0; font-size:9.5px; padding:5px 2px; } }
 @media (max-width:720px) { .mode-tabs button { flex:1; padding:10px 8px; } .partner-search-panel { padding:14px; } }
+
+/* Section 22.3 — Travel Hacker constraint hook (static UI: no keyframes, no pulsing) */
+.constraint-panel { margin: 30px 0 4px; border: 1px solid rgba(185,255,152,.2); border-radius: 20px; background: radial-gradient(circle at 88% -30%, rgba(185,255,152,.1), transparent 46%), rgba(24,26,34,.8); padding: 24px 26px; }
+.constraint-prompt { margin-top: 10px; color: #fff; font-size: clamp(19px, 2.2vw, 26px); font-weight: 600; letter-spacing: -.035em; line-height: 1.25; }
+.constraint-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.constraint-choice { display: flex; align-items: center; gap: 11px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(255,255,255,.03); padding: 15px 16px; color: rgba(255,255,255,.78); font-size: 13px; font-weight: 700; text-align: left; }
+.constraint-choice:hover { border-color: rgba(185,255,152,.4); background: rgba(185,255,152,.07); color: #fff; }
+.constraint-choice-icon { display: flex; width: 30px; height: 30px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 9px; background: rgba(185,255,152,.12); color: #b9ff98; }
+.constraint-choice-arrow { margin-left: auto; color: rgba(255,255,255,.3); }
+.constraint-choice:hover .constraint-choice-arrow { color: #b9ff98; }
+.constraint-panel-filled { border-color: rgba(185,255,152,.3); }
+.constraint-head { max-width: 760px; }
+.constraint-badge { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(185,255,152,.28); border-radius: 99px; background: rgba(185,255,152,.1); padding: 6px 11px; color: #b9ff98; font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+.constraint-sub { margin-top: 12px; color: rgba(255,255,255,.36); font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.constraint-blurb { margin-top: 7px; color: rgba(255,255,255,.7); font-size: 15px; line-height: 1.5; }
+.constraint-tactics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 0; padding: 0; list-style: none; }
+.constraint-tactics li { position: relative; border: 1px solid rgba(255,255,255,.08); border-radius: 13px; background: rgba(255,255,255,.025); padding: 13px 14px 13px 32px; color: rgba(255,255,255,.55); font-size: 12px; line-height: 1.6; }
+.constraint-tactics li:before { content: "✓"; position: absolute; left: 13px; top: 12px; color: #b9ff98; font-weight: 800; }
+.constraint-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 11px; margin-top: 18px; }
+.constraint-primary { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 12px; background: #b9ff98; padding: 13px 17px; color: #10210d; font-size: 12px; font-weight: 800; text-decoration: none; }
+.constraint-primary:hover { filter: brightness(1.06); }
+.constraint-partner { display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(255,255,255,.04); padding: 13px 17px; color: rgba(255,255,255,.8); font-size: 12px; font-weight: 700; text-decoration: none; }
+.constraint-partner:hover { border-color: rgba(185,255,152,.4); color: #b9ff98; }
+.constraint-change { border: 0; background: none; padding: 6px; color: rgba(255,255,255,.4); font-size: 11px; font-weight: 700; }
+.constraint-change:hover { color: #b9ff98; }
+.constraint-note { margin-top: 14px; color: rgba(255,255,255,.3); font-size: 10px; line-height: 1.6; }
+@media (max-width: 900px) { .constraint-choices, .constraint-tactics { grid-template-columns: 1fr; } .constraint-panel { padding: 18px; margin-top: 24px; } }
