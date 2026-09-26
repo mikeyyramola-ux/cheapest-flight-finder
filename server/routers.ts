@@ -13,6 +13,7 @@ const searchInput = z.object({
   departureDate: z.string(),
   returnDate: z.string().optional(),
   passengers: z.number().int().min(1).max(9),
+  tripType: z.enum(["roundTrip", "oneWay"]).optional(),
 });
 
 export const appRouter = router({

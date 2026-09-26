@@ -87,7 +87,7 @@ export function getHistoricalAverage(origin: string, destination: string) {
   return Math.round(points.reduce((sum, point) => sum + point.price, 0) / points.length);
 }
 
-export async function searchFlights(input: { origin: string; destination: string; departureDate: string; returnDate?: string; passengers: number }) {
+export async function searchFlights(input: { origin: string; destination: string; departureDate: string; returnDate?: string; passengers: number; tripType?: "roundTrip" | "oneWay" }) {
   const origin = input.origin.toUpperCase();
   const destination = input.destination.toUpperCase();
   const cacheKey = JSON.stringify({ ...input, origin, destination });
