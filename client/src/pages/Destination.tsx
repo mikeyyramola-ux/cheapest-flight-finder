@@ -172,6 +172,9 @@ export function DestinationHub() {
             New here? Read the <Link href="/faq">cheap flights FAQ</Link>, watch a route in the <Link href="/tracker">deal tracker</Link>, or see what{" "}
             <Link href="/paywall">Fareloop Premium</Link> unlocks.
           </p>
+          <p style={{ marginTop: 10 }}>
+            <a href="/privacy.html">Privacy policy</a> · <a href="/terms.html">Terms of service</a>
+          </p>
         </footer>
       </main>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
