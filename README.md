@@ -6,7 +6,7 @@ A mobile-first dark micro-SaaS for discovering low fares and tracking routes aga
 
 - React 19 + Tailwind 4 dashboard with flight search, sorted result cards, comparison table, route tracker, history view, and premium paywall.
 - tRPC + Express backend with a modular flight-data engine, five-minute in-memory cache, seed offers, route history, tracker mutations, and a scanner endpoint.
-- Amadeus Self-Service compatible placeholder path: set `AMADEUS_CLIENT_ID` and `AMADEUS_CLIENT_SECRET` and replace the provider call inside `server/flight-data.ts` with the Flight Offers Search request. Until then, deterministic seed data and route-based fallbacks keep the demo usable.
+- Amadeus Self-Service placeholder path: implement the Flight Offers Search call inside `server/flight-data.ts` and set `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET`. Setting the keys alone changes nothing in the UI - demo labels (Sample/Estimate) stay until a real provider call returns data. Round-trip prices are outbound + return leg; the UI never claims live fares until a provider is wired.
 - Stripe subscription module in `server/stripe.ts`. It opens a demo paywall without keys and creates a real Checkout Session when `STRIPE_SECRET_KEY` and `STRIPE_PREMIUM_PRICE_ID` are configured.
 - Stripe webhook handler at `/api/stripe/webhook`. The signature is verified with `STRIPE_WEBHOOK_SECRET`; checkout completion logs the Stripe customer/subscription identifiers for persistence in the user row.
 - Telegram and WhatsApp notification framework. Telegram sends through the Bot API when `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` are set. The WhatsApp branch is ready for Twilio credentials.

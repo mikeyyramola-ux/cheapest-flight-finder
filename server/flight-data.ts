@@ -17,8 +17,9 @@ export type FlightOffer = {
   baggage: string;
   bookingUrl: string;
   isBest: boolean;
+  returnPrice?: number;
   layoverCountry?: string;
-  source: "Seed data" | "Amadeus API";
+  source: "Seed data" | "Estimate";
 };
 
 export type TrackedRoute = {
@@ -65,7 +66,7 @@ const seedHistory: Record<string, PriceHistoryPoint[]> = {
   ],
 };
 
-const cachedResults = new Map<string, { expiresAt: number; offers: FlightOffer[] }>();
+const cachedResults = new Map<string, { expiresAt: number; offers: FlightOffer[]; source: "seed" | "estimate" }>();
 const DEFAULT_ROUTES: TrackedRoute[] = [
   { id: "route-1", origin: "JFK", destination: "LHR", departDate: isoDate(45), returnDate: isoDate(52), targetPrice: 450, currentPrice: 418, historicalAverage: 532, lastChecked: "12 min ago", status: "alert", alertChannel: "Telegram" },
   { id: "route-2", origin: "LHR", destination: "HND", departDate: isoDate(60), returnDate: isoDate(74), targetPrice: 760, currentPrice: 806, historicalAverage: 899, lastChecked: "12 min ago", status: "watching", alertChannel: "WhatsApp" },
@@ -92,14 +93,31 @@ export async function searchFlights(input: { origin: string; destination: string
   const destination = input.destination.toUpperCase();
   const cacheKey = JSON.stringify({ ...input, origin, destination });
   const cached = cachedResults.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return { offers: cached.offers, cached: true, source: "cache" as const };
+  if (cached && cached.expiresAt > Date.now()) return { offers: cached.offers, cached: true, source: cached.source };
 
   const matching = seedOffers.filter(offer => offer.origin === origin && offer.destination === destination);
-  const offers = matching.length > 0
+  let offers = matching.length > 0
     ? matching.map(offer => ({ ...offer, departureDate: input.departureDate, isBest: false })).sort((a, b) => a.price - b.price).map((offer, index) => ({ ...offer, isBest: index === 0 }))
     : buildFallbackOffers(origin, destination, input.departureDate);
-  cachedResults.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, offers });
-  return { offers, cached: false, source: process.env.AMADEUS_CLIENT_ID ? "amadeus-ready" as const : "seed" as const };
+  let estimate = matching.length === 0;
+  // Round trip = outbound + return leg. Fixed 2026-09-27: the Return button used to show one-way-only prices.
+  if (input.tripType !== "oneWay" && input.returnDate) {
+    const backMatches = seedOffers.filter(offer => offer.origin === destination && offer.destination === origin);
+    const backOffers = backMatches.length > 0
+      ? backMatches.map(offer => ({ ...offer, departureDate: input.returnDate as string, isBest: false })).sort((a, b) => a.price - b.price)
+      : buildFallbackOffers(destination, origin, input.returnDate);
+    estimate = estimate || backMatches.length === 0;
+    offers = offers
+      .map((outbound, index) => {
+        const back = backOffers[index % backOffers.length];
+        return { ...outbound, price: outbound.price + back.price, returnPrice: back.price };
+      })
+      .sort((a, b) => a.price - b.price)
+      .map((offer, index) => ({ ...offer, isBest: index === 0 }));
+  }
+  const source: "seed" | "estimate" = estimate ? "estimate" : "seed";
+  cachedResults.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, offers, source });
+  return { offers, cached: false, source };
 }
 
 function buildFallbackOffers(origin: string, destination: string, departureDate: string): FlightOffer[] {
@@ -114,7 +132,7 @@ function buildFallbackOffers(origin: string, destination: string, departureDate:
     ["Emirates", "EK", "15:45", "12:10", "14h 25m", 1],
     ["United Airlines", "UA", "18:25", "09:15", "9h 50m", 0],
   ] as const;
-  return airlines.map(([airline, airlineCode, departureTime, arrivalTime, duration, stops], index) => ({ id: `fallback-${origin}-${destination}-${index}`, airline, airlineCode, origin, destination, departureDate, departureTime, arrivalTime, duration, stops, price: base + index * 78, currency: "USD", cabin: "Economy", baggage: "1 carry-on", bookingUrl: `https://www.google.com/travel/flights?q=${origin}%20to%20${destination}`, isBest: index === 0, layoverCountry: stops > 0 ? ["France", "Germany", "Qatar", "Türkiye", "United Arab Emirates", "Singapore", "United States"][index] : undefined, source: "Seed data" }));
+  return airlines.map(([airline, airlineCode, departureTime, arrivalTime, duration, stops], index) => ({ id: `fallback-${origin}-${destination}-${index}`, airline, airlineCode, origin, destination, departureDate, departureTime, arrivalTime, duration, stops, price: base + index * 78, currency: "USD", cabin: "Economy", baggage: "1 carry-on", bookingUrl: `https://www.google.com/travel/flights?q=${origin}%20to%20${destination}`, isBest: index === 0, layoverCountry: stops > 0 ? ["France", "Germany", "Qatar", "Türkiye", "United Arab Emirates", "Singapore", "United States"][index] : undefined, source: "Estimate" }));
 }
 
 export function listTrackedRoutes() {
