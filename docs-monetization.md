@@ -195,6 +195,13 @@ applies** — always match `advertiserId=` in the tab URL, not just the title;
 hidden `a.text-error` anchors ("Please complete your Network Profile…" /
 "…onboarding checklist…") exist in every row's DOM — display state, not status.
 
+**Live re-sync 2026-09-24 ~18:25 (owner-session read): pending = 41 Results**
+(47 → 41: six applications resolved since the final-pending log; split not
+machine-readable — the results pane pins the pending filter under automation —
+**offers pending approval: 2**, balance $0.00, Tasks shows "Review Pending
+Applications (41)"). CJ API lane absent (six env probes, no key): advertiser
+approvals are advertiser decisions, never an API operation.
+
 ---
 
 ## 7. Key sources
