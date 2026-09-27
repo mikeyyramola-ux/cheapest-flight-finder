@@ -257,6 +257,9 @@ export default function DestinationPage() {
             <Link href="/">Search cheap flights</Link> · <Link href="/flights-to">All destinations</Link> · <Link href="/faq">Cheap flights FAQ</Link> ·{" "}
             <Link href="/tracker">Deal tracker</Link> · <Link href="/paywall">Fareloop Premium</Link>
           </p>
+          <p style={{ marginTop: 10 }}>
+            <a href="/privacy.html">Privacy policy</a> · <a href="/terms.html">Terms of service</a>
+          </p>
         </footer>
       </main>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd(faqs) }} />
