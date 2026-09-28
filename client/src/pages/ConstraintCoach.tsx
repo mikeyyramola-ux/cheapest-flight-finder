@@ -153,7 +153,7 @@ export default function ConstraintCoach({
             {active.primaryLabel} <ArrowRight size={14} />
           </Link>
         )}
-        <a href={partnerHref(profile)} target="_blank" rel="noopener noreferrer sponsored" className="constraint-partner">
+        <a href={partnerHref(profile)} target="_blank" rel="sponsored nofollow noopener noreferrer" className="constraint-partner">
           Compare live on a partner site <ArrowRight size={14} />
         </a>
         <button type="button" className="constraint-change" onClick={reset}>Change answer</button>
