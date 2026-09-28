@@ -5,6 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
 import { addTrackedRoute, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout, premiumPlan } from "./stripe";
+import { createPayPalCheckout, handlePayPalWebhook, premiumPlanPayPal } from "./paypal";
 import { getPartnerHealthReport } from "./partner-health";
 
 const searchInput = z.object({
@@ -42,7 +43,9 @@ export const appRouter = router({
   }),
   billing: router({
     pricing: publicProcedure.query(() => premiumPlan),
+    pricingPayPal: publicProcedure.query(() => premiumPlanPayPal),
     checkout: publicProcedure.input(z.object({ route: z.string().optional() })).mutation(async ({ ctx, input }) => createPremiumCheckout({ origin: input.route ?? "dashboard", userId: ctx.user?.id, email: ctx.user?.email, name: ctx.user?.name })),
+    checkoutPayPal: publicProcedure.input(z.object({ route: z.string().optional() })).mutation(async ({ ctx, input }) => createPayPalCheckout({ origin: input.route ?? "dashboard", userId: ctx.user?.id, email: ctx.user?.email, name: ctx.user?.name })),
   }),
   monitoring: router({
     partners: adminProcedure.query(() => getPartnerHealthReport()),

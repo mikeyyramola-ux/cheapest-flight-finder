@@ -19,6 +19,7 @@ export const users = mysqlTable("users", {
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   stripeCustomerId: varchar("stripeCustomerId", { length: 128 }),
   stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 128 }),
+  paypalSubscriptionId: varchar("paypalSubscriptionId", { length: 128 }),
   subscriptionStatus: varchar("subscriptionStatus", { length: 32 }).default("free").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./render";
 import { handleStripeWebhook } from "../stripe";
+import { handlePayPalWebhook } from "../paypal";
 import { monitorPartnersHandler, scanFlightDealsHandler } from "../scheduled";
 import { DESTINATION_PATHS } from "@shared/destinations";
 
@@ -50,6 +51,15 @@ export async function createApp(): Promise<{ app: Express; server: Server }> {
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const result = await handleStripeWebhook(req.body as Buffer, req.headers["stripe-signature"] as string | undefined);
+      return res.json(result);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  // PayPal webhook (needs all headers for signature verification)
+  app.post("/api/paypal/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const result = await handlePayPalWebhook(req.body as Buffer, req.headers as Record<string, string>);
       return res.json(result);
     } catch (error) {
       return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });

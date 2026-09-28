@@ -108,3 +108,21 @@ export async function updateUserStripeSubscription(input: {
   }).where(eq(users.id, input.userId));
   return true;
 }
+
+export async function updateUserPayPalSubscription(input: {
+  userId: number;
+  subscriptionId?: string | null;
+  status: string;
+}) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot persist PayPal subscription: database not available");
+    return false;
+  }
+
+  await db.update(users).set({
+    paypalSubscriptionId: input.subscriptionId ?? undefined,
+    subscriptionStatus: input.status,
+  }).where(eq(users.id, input.userId));
+  return true;
+}
