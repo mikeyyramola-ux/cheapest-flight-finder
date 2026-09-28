@@ -26,11 +26,11 @@ function destinationFaqs(dest: Destination) {
     },
     {
       q: `How far in advance should I book flights to ${dest.city}?`,
-      a: `Aim for about one to three months ahead on shorter routes and two to six months for long-haul flights to ${dest.city}, and add a month if you are traveling in a peak window. Inside that window, watch the route's 90-day trend on Fareloop and book when the fare sits in its lowest range instead of guessing a magic booking day.`,
+      a: `Aim for about one to three months ahead on shorter routes and two to six months for long-haul flights to ${dest.city}, and add a month if you are traveling in a peak window. Inside that window, watch the route's price trend on Fareloop and book when the fare sits in its lowest range instead of guessing a magic booking day.`,
     },
     {
       q: `How do I find cheap flights to ${dest.city} on Fareloop?`,
-      a: `Set your origin and ${dest.city} (${dest.code}) as the destination on the Fareloop flight finder, then sort by cheapest total price. Every fare card shows the total price for your travelers plus stops, duration, baggage, and the airline, and you can watch the route's 90-day trend to book when prices sit in their lowest range.`,
+      a: `Set your origin and ${dest.city} (${dest.code}) as the destination on the Fareloop flight finder, then sort by cheapest total price. Every fare card shows the total price for your travelers plus stops, duration, baggage, and the airline, and you can watch the route's price trend to book when prices sit in their lowest range.`,
     },
   ];
 }
@@ -134,7 +134,7 @@ export function DestinationHub() {
             <p>
               Each destination page explains the best season for that city, the airport your flights will use, and example routes you can compare instantly.
               Open a guide, then use its search link to land on the flight finder with the destination already filled in — sort by cheapest total price and
-              watch the 90-day trend before you book. Searching is free, and Fareloop never adds a markup to the fare you see.
+              watch the price trend before you book. Searching is free, and Fareloop never adds a markup to the fare you see.
             </p>
           </div>
           <div className="seo-copy seo-block-wide">
@@ -198,7 +198,7 @@ export default function DestinationPage() {
             <p className="eyebrow accent-text">Destination guide · {dest.region}</p>
             <h1 className="page-title">Cheap flights to {dest.city}: <em>{dest.code} fares</em></h1>
             <p className="hero-subtitle">
-              {dest.airport} · {dest.country}. Compare total prices, watch the 90-day trend, and get alerts when fares to {dest.city} drop.
+              {dest.airport} · {dest.country}. Compare total prices, watch the price trend, and get alerts when fares to {dest.city} drop.
             </p>
           </div>
           <Link className="primary-cta small" href={`/?to=${dest.code}`}>Search flights to {dest.city} <ArrowRight size={14} /></Link>
@@ -219,7 +219,7 @@ export default function DestinationPage() {
               Seasonal guidance from this guide — never a fabricated price. The cheapest months to fly to {dest.city} are usually{" "}
               <strong className="month-strong">{cheapestMonthLabel(dest)}</strong>; the highlighted cells mark that window and everything else sits in the
               typical band. Shift your dates inside the highlighted months, then compare on the <Link href={`/?to=${dest.code}`}>flight finder for {dest.city}</Link>{" "}
-              — or watch the route's 90-day trend and book when the curve dips.
+              — or watch the route's price trend and book when the curve dips.
             </p>
           </div>
           <div className="seo-copy">

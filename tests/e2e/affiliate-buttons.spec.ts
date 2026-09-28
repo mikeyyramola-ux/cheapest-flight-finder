@@ -55,7 +55,7 @@ test.describe("hydrated affiliate booking buttons", () => {
     await page.getByRole("button", { name: /go premium/i }).click();
     await expect(page.getByText("Global fare coverage")).toBeVisible();
     await expect(page.getByText("Flexible-date deal radar")).toBeVisible();
-    await expect(page.getByText("700+ airlines across 190+ countries", { exact: true })).toBeVisible();
+    await expect(page.getByText("No booking markups", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: /close paywall/i }).evaluate((element) => (element as HTMLButtonElement).click());
     await expect(page.getByLabel("Flying from").locator("option")).toHaveCount(50);

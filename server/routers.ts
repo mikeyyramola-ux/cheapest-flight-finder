@@ -3,7 +3,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
-import { addTrackedRoute, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
+import { addTrackedRoute, getRouteHistory, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout, premiumPlan } from "./stripe";
 import { createPayPalCheckout, handlePayPalWebhook, premiumPlanPayPal } from "./paypal";
 import { getPartnerHealthReport } from "./partner-health";
@@ -29,7 +29,10 @@ export const appRouter = router({
   }),
   flights: router({
     search: publicProcedure.input(searchInput).mutation(async ({ input }) => searchFlights(input)),
-    history: publicProcedure.input(z.object({ origin: z.string(), destination: z.string() })).query(({ input }) => ({ points: getSeedHistory(input.origin, input.destination), gated: false })),
+    history: publicProcedure.input(z.object({ origin: z.string(), destination: z.string() })).query(({ input }) => {
+      const history = getRouteHistory(input.origin, input.destination);
+      return { points: history.points, source: history.source, windowDays: history.windowDays, gated: false as const };
+    }),
   }),
   tracker: router({
     list: publicProcedure.query(() => ({ routes: listTrackedRoutes(), plan: "demo-free" as const })),

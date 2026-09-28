@@ -11,7 +11,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "When is the best time to book a cheap flight?",
-    a: "Airfares change daily, so there is no single magic booking day. Prices usually settle one to three months before departure for domestic trips and two to six months ahead for long-haul international routes. The reliable approach is to watch the route's 90-day price trend on Fareloop and book when the fare sits in its lowest range.",
+    a: "Airfares change daily, so there is no single magic booking day. Prices usually settle one to three months before departure for domestic trips and two to six months ahead for long-haul international routes. The reliable approach is to watch the route's price trend on Fareloop and book when the fare sits in its lowest range.",
   },
   {
     q: "What is a price-drop alert?",
@@ -19,7 +19,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "How does the Fareloop deal tracker work?",
-    a: "Save a route such as JFK to LHR together with a target price and an alert channel. Fareloop scans the route on your schedule, compares the current fare with its 90-day average, and surfaces an alert when a meaningful drop appears, so you can decide to book now or keep watching.",
+    a: "Save a route such as JFK to LHR together with a target price and an alert channel. Fareloop compares the current fare with that route's recent average, and surfaces an alert when a meaningful drop appears, so you can decide to book now or keep watching.",
   },
   {
     q: "Does Fareloop add markup to flight prices?",
@@ -31,11 +31,11 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Which airlines and routes does Fareloop cover?",
-    a: "Fareloop searches popular routes across North America, Europe, the Middle East, Asia, Africa, Oceania, and South America, covering more than 700 airlines across 190+ countries — from New York to London and Dubai to Mumbai to Toronto to Paris and Tokyo to Singapore.",
+    a: "Fareloop searches from major airports worldwide, including New York, London, Dubai, Tokyo, Paris and Toronto. Routes we do not yet hold real price history for are labelled as estimates rather than live quotes, so you always know exactly what you are looking at.",
   },
   {
     q: "How much does Fareloop Premium cost?",
-    a: "Premium is $9.99 per month. It unlocks unlimited route tracking, 90-day price history, target-budget alerts, flexible-date deal radar, and priority scans, with no booking markups. You can cancel anytime and keep your saved routes.",
+    a: "Premium is $9.99 per month. It unlocks unlimited route tracking, route price history, target-budget alerts and Telegram price-drop notifications, with no booking markups. You can cancel anytime and keep your saved routes.",
   },
   {
     q: "Is searching flights on Fareloop free?",
@@ -48,12 +48,12 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "How do I find flight price drops?",
-    a: "Save the route in the Fareloop deal tracker with a target price, then watch its 90-day trend: when the current fare drops meaningfully below the recent reference price, that is the signal to book. Price drops rarely announce themselves, so an alert beats re-checking the same search every day — fares can move while you sleep.",
+    a: "Save the route in the Fareloop deal tracker with a target price, then watch its price trend: when the current fare drops meaningfully below the recent reference price, that is the signal to book. Price drops rarely announce themselves, so an alert beats re-checking the same search every day — fares can move while you sleep.",
     link: { href: "/tracker", label: "open the deal tracker" },
   },
   {
     q: "Do flight prices drop closer to the departure date?",
-    a: "Usually not. Fares tend to climb in the final weeks before departure as the remaining seats go to travelers with little choice of date. The reliable window is about one to three months out for shorter routes and two to six months for long-haul, with airline seat sales as the main exception — which is exactly what the 90-day trend is there to catch.",
+    a: "Usually not. Fares tend to climb in the final weeks before departure as the remaining seats go to travelers with little choice of date. The reliable window is about one to three months out for shorter routes and two to six months for long-haul, with airline seat sales as the main exception — which is exactly what the price trend is there to catch.",
   },
   {
     q: "Which days of the week are the cheapest to fly?",

@@ -99,14 +99,11 @@ function PartnerSearchPanel({ mode }: { mode: Exclude<SearchMode, "flights"> }) 
 
 function Paywall({ onClose, onUnlock, checkout, checkoutPayPal }: { onClose: () => void; onUnlock: () => void; checkout: () => void; checkoutPayPal: () => void }) {
   const benefits = [
-    ["Instant price-drop alerts", "Telegram, WhatsApp & email-ready"],
-    ["Historical price intelligence", "90-day trend lines and averages"],
+    ["Instant price-drop alerts", "Telegram alert the moment a watched fare drops"],
+    ["Route price history", "Your target vs the route average, at a glance"],
     ["Unlimited route tracking", "Watch every trip on your calendar"],
-    ["Global fare coverage", "700+ airlines across 190+ countries"],
-    ["Flexible-date deal radar", "See cheaper days before you book"],
-    ["Smart buy timing", "Know when a fare is in its lowest range"],
-    ["Priority scans", "Checked before free-tier routes"],
-    ["No booking markups", "Transparent partner-link pricing"],
+    ["No booking markups", "We never add a fee to the fare you see"],
+    ["Cancel anytime", "No contract - stop the plan whenever you like"],
   ];
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-0 backdrop-blur-sm sm:items-center sm:p-5" onClick={onClose}><div className="paywall-modal relative w-full max-w-2xl overflow-hidden rounded-t-[28px] sm:rounded-[28px]" onClick={event => event.stopPropagation()}><button onClick={onClose} className="absolute right-5 top-5 z-10 rounded-full bg-white/10 p-2 text-white/70 transition hover:bg-white/20" aria-label="Close paywall"><X size={18} /></button><div className="paywall-orb orb-one" /><div className="paywall-orb orb-two" /><div className="relative p-7 pb-8 sm:p-10"><div className="mb-8 flex items-center justify-between"><div className="logo-mark glow"><Plane size={18} /></div><div className="premium-pill"><Sparkles size={13} /> Premium</div></div><p className="eyebrow accent-text">Your personal fare advantage</p><h2 className="mt-3 max-w-xl text-3xl font-semibold leading-tight tracking-[-0.04em] text-white">Pay less. Travel farther. Never wonder if you booked too soon.</h2><p className="mt-4 max-w-xl text-[15px] leading-6 text-white/60">Premium turns Faredrop into a full-time travel analyst: it watches routes globally, explains the price, and alerts you before a great fare disappears.</p><div className="my-7 grid grid-cols-1 gap-3 sm:grid-cols-2">{benefits.map(([title, detail]) => <div key={title} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[.05] p-3 text-[12px] font-medium text-white/80"><Check size={14} className="mt-0.5 shrink-0 text-[#a8f08a]" /><span><strong className="block text-white">{title}</strong><span className="mt-1 block text-white/40">{detail}</span></span></div>)}</div><div className="rounded-2xl border border-[#b9ff98]/20 bg-[#b9ff98]/[.06] p-4 text-sm text-white/70"><strong className="text-[#b9ff98]">Built for frequent flyers:</strong> one avoided overpay can cover the monthly plan. Cancel anytime and keep your saved routes and history.</div><div className="mt-7 flex flex-col gap-4 border-t border-white/10 pt-5 sm:flex-row sm:items-end sm:justify-between"><div><span className="text-3xl font-semibold text-white">$9.99</span><span className="ml-1 text-sm text-white/45">/ month</span><p className="mt-1 text-[11px] text-white/40">Less than one airport meal per month</p></div><div className="flex w-full flex-col gap-2 sm:w-64"><button onClick={checkout} className="primary-cta flex w-full items-center justify-center gap-2"><CreditCard size={17} /> Start Premium <ArrowRight size={17} /></button><button onClick={checkoutPayPal} className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-500/50 bg-blue-600/10 px-4 py-3 text-sm font-medium text-blue-400 transition hover:bg-blue-600/20" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.521 17.34c-.632.258-1.293.388-1.984.388-.83 0-1.594-.195-2.29-.584l-1.393 1.346c1.029.565 2.172.884 3.43.884 3.877 0 6.334-3.277 6.334-7.234 0-3.988-2.467-7.265-6.371-7.265-2.936 0-5.429 2.03-6.318 5.012l1.477 1.392c.627-1.854 2.154-3.571 4.581-3.571 2.568 0 4.48 1.918 4.48 4.499 0 2.393-1.45 3.79-3.79 3.79-1.379 0-2.42-.768-2.859-1.883l-1.282-1.136c-.85.795-1.888 1.248-3.115 1.248-2.298 0-4.159-1.827-4.159-4.082 0-2.262 1.86-4.089 4.159-4.089 1.157 0 2.166.398 3.005 1.104l1.294-1.187C15.041 3.478 13.024 2.5 10.5 2.5c-4.971 0-9 4.029-9 9s4.029 9 9 9c4.511 0 8.317-3.373 8.521-7.66z"/></svg> PayPal</button><button onClick={onUnlock} className="flex w-full items-center justify-center gap-2 text-xs font-medium text-white/40 transition hover:text-white/70">Explore demo mode <ChevronDown size={14} /></button><button onClick={onClose} className="flex w-full items-center justify-center gap-2 text-xs font-medium text-white/30 transition hover:text-white/60">Maybe later</button></div></div></div></div></div>;
   }
@@ -178,7 +175,7 @@ function SeoContent() {
           </span>
         ))}{" "}
         — then work flexibly inside that window: shifting a trip by two or three days within the cheapest months is the simplest date-flex move, and the
-        route's 90-day trend tells you when to actually book. See the <Link href="/flights-to">cheapest-months table for every destination</Link>.
+        route's price trend tells you when to actually book. See the <Link href="/flights-to">cheapest-months table for every destination</Link>.
       </p>
     </div>
     <div className="seo-copy">
@@ -265,10 +262,11 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [alertChannel, setAlertChannel] = useState<"Telegram" | "WhatsApp">("Telegram");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  // Seeded with a genuine welcome only. Fabricated "price drop / scan complete"
+  // entries would show users activity that never happened - alerts start empty and
+  // are appended only when a real scan or webhook produces one.
   const [notifications, setNotifications] = useState<AppNotification[]>([
-    { id: 1, title: "Price drop detected", body: "JFK → LHR is now $418, 22% below its route average.", time: "12 min ago", kind: "drop", unread: true },
-    { id: 2, title: "Tracker scan complete", body: "Your saved routes were checked and are still being watched.", time: "12 min ago", kind: "tracker", unread: true },
-    { id: 3, title: "Welcome to faredrop", body: "Search flights free and turn on alerts when you find a route worth watching.", time: "Today", kind: "system", unread: false },
+    { id: 1, title: "Welcome to Fareloop", body: "Search flights free, then switch on alerts for any route you want to watch.", time: "Today", kind: "system", unread: false },
   ]);
   const [selectedTrackerRouteId, setSelectedTrackerRouteId] = useState("");
 

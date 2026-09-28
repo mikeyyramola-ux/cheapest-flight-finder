@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { getHistoricalAverage, listTrackedRoutes, scanTrackedRoutes, searchFlights } from "./flight-data";
+import { describe, expect, it, vi } from "vitest";
+import { getHistoricalAverage, getRouteHistory, listTrackedRoutes, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout } from "./stripe";
 
 describe("flight data engine", () => {
@@ -32,6 +32,41 @@ describe("flight data engine", () => {
     const result = scanTrackedRoutes();
     expect(result.alerts.length).toBe(listTrackedRoutes().length);
     expect(result.alerts.some(item => item.notified)).toBe(true);
+  });
+});
+
+describe("honesty guarantees", () => {
+  it("never labels a sample series as live, and derives the window from the data", () => {
+    const seeded = getRouteHistory("JFK", "LHR");
+    expect(seeded.source).toBe("seed");
+    // The chart used to print a fixed "90-day average" over ~70 days of samples.
+    expect(seeded.windowDays).toBe(seeded.points.length * 7);
+    expect(seeded.windowDays).toBeLessThan(90);
+
+    const unknown = getRouteHistory("ZZZ", "YYY");
+    expect(unknown.source).toBe("estimate");
+    expect(unknown.source).not.toBe("live");
+  });
+
+  it("reports an alert as undelivered when Telegram is not configured", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "");
+    try {
+      const route = listTrackedRoutes()[0];
+      expect(route).toBeTruthy();
+      const result = await sendPriceDropNotification(route!, 22);
+      expect(result.delivered).toBe(false);
+      expect(result.reason).toMatch(/not configured/i);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("never claims WhatsApp delivery while Twilio is still a placeholder", async () => {
+    const route = { ...listTrackedRoutes()[0]!, alertChannel: "WhatsApp" as const };
+    const result = await sendPriceDropNotification(route, 22);
+    expect(result.delivered).toBe(false);
+    expect(result.reason).toMatch(/not implemented/i);
   });
 });
 

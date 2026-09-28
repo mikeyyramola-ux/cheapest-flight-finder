@@ -40,7 +40,7 @@ const ogInner = `
     </div>
     <div>
       <div style="font-size:66px; font-weight:650; line-height:1.04; letter-spacing:-0.035em;">Catch the <span style="color:#b9ff98;">drop.</span><br/>Keep the trip.</div>
-      <div style="margin-top:20px; font-size:23px; color:rgba(247,247,243,.55);">Compare cheap flights across 700+ airlines and get alerts when fares fall.</div>
+      <div style="margin-top:20px; font-size:23px; color:rgba(247,247,243,.55);">Track flight prices and get an alert the moment a fare on your route falls.</div>
     </div>
     <div style="display:flex; align-items:center; justify-content:space-between;">
       <div style="display:inline-flex; align-items:center; gap:10px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.05); border-radius:999px; padding:11px 20px; font-size:17px; color:rgba(247,247,243,.75);">

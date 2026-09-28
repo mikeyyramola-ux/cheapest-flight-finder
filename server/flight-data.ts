@@ -78,9 +78,30 @@ export function routeKey(origin: string, destination: string) {
   return `${origin.toUpperCase()}-${destination.toUpperCase()}`;
 }
 
-export function getSeedHistory(origin: string, destination: string) {
+/** Provenance of a price series. The client MUST label charts from this value -
+ *  never hardcode "Live" in the UI, or sample data gets sold as live airline quotes. */
+export type HistorySource = "seed" | "estimate" | "live";
+
+export interface RouteHistory {
+  points: PriceHistoryPoint[];
+  source: HistorySource;
+  /** Actual number of days the series spans, derived from the data - not a marketing figure. */
+  windowDays: number;
+}
+
+export function getRouteHistory(origin: string, destination: string): RouteHistory {
   const key = routeKey(origin, destination);
-  return seedHistory[key] ?? Array.from({ length: 8 }, (_, index) => ({ date: `Week ${index + 1}`, price: 480 + index * 22 }));
+  const known = seedHistory[key];
+  if (known) {
+    // Seed rows are weekly samples, so the real window is points x 7 days.
+    return { points: known, source: "seed", windowDays: known.length * 7 };
+  }
+  const synthetic = Array.from({ length: 8 }, (_, index) => ({ date: `Week ${index + 1}`, price: 480 + index * 22 }));
+  return { points: synthetic, source: "estimate", windowDays: synthetic.length * 7 };
+}
+
+export function getSeedHistory(origin: string, destination: string) {
+  return getRouteHistory(origin, destination).points;
 }
 
 export function getHistoricalAverage(origin: string, destination: string) {
@@ -162,14 +183,39 @@ export function scanTrackedRoutes() {
   return { checkedAt: new Date().toISOString(), alerts };
 }
 
-export async function sendPriceDropNotification(route: TrackedRoute, dropPercent: number) {
+export interface NotificationResult {
+  channel: "Telegram" | "WhatsApp";
+  message: string;
+  /** True ONLY when the provider actually accepted the message. It is never
+   *  inferred from credentials being present - a configured-but-broken bot must
+   *  not be able to report success. */
+  delivered: boolean;
+  reason: string;
+}
+
+export async function sendPriceDropNotification(route: TrackedRoute, dropPercent: number): Promise<NotificationResult> {
   const message = `✈️ Price drop on ${route.origin} → ${route.destination}: $${route.currentPrice} (${dropPercent}% below average). Your target is $${route.targetPrice}.`;
-  if (route.alertChannel === "Telegram" && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message }) });
+
+  if (route.alertChannel === "Telegram") {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId) return { channel: "Telegram", message, delivered: false, reason: "Telegram credentials not configured" };
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: message }),
+      });
+      if (!res.ok) return { channel: "Telegram", message, delivered: false, reason: `Telegram API responded ${res.status}` };
+      const body = (await res.json()) as { ok?: boolean; description?: string };
+      if (!body.ok) return { channel: "Telegram", message, delivered: false, reason: body.description || "Telegram rejected the message" };
+      return { channel: "Telegram", message, delivered: true, reason: "accepted by Telegram" };
+    } catch (error) {
+      return { channel: "Telegram", message, delivered: false, reason: error instanceof Error ? error.message : String(error) };
+    }
   }
-  if (route.alertChannel === "WhatsApp" && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-    // Framework placeholder: wire Twilio's messages.create here when WhatsApp credentials are enabled.
-    console.info("[WhatsApp alert ready]", route.id, message);
-  }
-  return { channel: route.alertChannel, message, delivered: Boolean(process.env.TELEGRAM_BOT_TOKEN || process.env.TWILIO_ACCOUNT_SID) };
+
+  // Twilio/WhatsApp is still a placeholder. Say so instead of reporting a delivery
+  // that never happened - the previous version returned delivered:true here.
+  return { channel: "WhatsApp", message, delivered: false, reason: "WhatsApp alerts are not implemented yet" };
 }
