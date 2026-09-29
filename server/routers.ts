@@ -74,7 +74,9 @@ export const appRouter = router({
       // Restored from storage first: without this a freshly-started instance would
       // hand back its demo routes as though they were the customer's saved ones.
       await ensureRoutesHydrated();
-      return { routes: listTrackedRoutes(), plan: "demo-free" as const };
+      // No `plan` field here on purpose: this is a publicProcedure with no user
+      // context, so any plan value it returned would be invented rather than known.
+      return { routes: listTrackedRoutes() };
     }),
     add: publicProcedure
       .input(z.object({ origin: z.string().min(3), destination: z.string().min(3), departDate: z.string(), returnDate: z.string(), targetPrice: z.number().min(1), alertChannel: z.enum(["Telegram", "WhatsApp"]), subscriptionId: z.string().max(64).optional() }))
