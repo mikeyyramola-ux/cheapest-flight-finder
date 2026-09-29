@@ -190,8 +190,12 @@ function toPersistable(route: TrackedRoute, lastCheckedAt: Date | null): Persist
 export function ensureRoutesHydrated(): Promise<boolean> {
   if (!routesHydration) {
     routesHydration = loadPersistedRoutes()
-      .then(rows => {
+      .then(async rows => {
         if (rows.length > 0) {
+          // The live series is loaded BEFORE the routes are materialised. Building a
+          // route first would stamp it with the seed average, and a customer would see
+          // a restored route quoting a number no supplier ever gave.
+          await Promise.all(rows.map(row => ensureHistoryLoaded(row.origin, row.destination)));
           trackedRoutes.clear();
           for (const row of rows) {
             trackedRoutes.set(row.id, rowToRoute(row));
