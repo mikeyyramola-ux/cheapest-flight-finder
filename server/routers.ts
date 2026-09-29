@@ -4,7 +4,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
-import { addTrackedRoute, getRouteHistory, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
+import { addTrackedRoute, ensureHistoryLoaded, ensureRoutesHydrated, getRouteHistory, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout, premiumPlan } from "./stripe";
 import { createPayPalCheckout, getPayPalSubscription, handlePayPalWebhook, premiumPlanPayPal } from "./paypal";
 import { getPartnerHealthReport } from "./partner-health";
@@ -61,13 +61,21 @@ export const appRouter = router({
   }),
   flights: router({
     search: publicProcedure.input(searchInput).mutation(async ({ input }) => searchFlights(input)),
-    history: publicProcedure.input(z.object({ origin: z.string(), destination: z.string() })).query(({ input }) => {
+    history: publicProcedure.input(z.object({ origin: z.string(), destination: z.string() })).query(async ({ input }) => {
+      // Awaited so the answer reflects stored readings when they exist. Skipping this
+      // would serve the seed series simply because the read happened before the load.
+      await ensureHistoryLoaded(input.origin, input.destination);
       const history = getRouteHistory(input.origin, input.destination);
       return { points: history.points, source: history.source, windowDays: history.windowDays, gated: false as const };
     }),
   }),
   tracker: router({
-    list: publicProcedure.query(() => ({ routes: listTrackedRoutes(), plan: "demo-free" as const })),
+    list: publicProcedure.query(async () => {
+      // Restored from storage first: without this a freshly-started instance would
+      // hand back its demo routes as though they were the customer's saved ones.
+      await ensureRoutesHydrated();
+      return { routes: listTrackedRoutes(), plan: "demo-free" as const };
+    }),
     add: publicProcedure
       .input(z.object({ origin: z.string().min(3), destination: z.string().min(3), departDate: z.string(), returnDate: z.string(), targetPrice: z.number().min(1), alertChannel: z.enum(["Telegram", "WhatsApp"]), subscriptionId: z.string().max(64).optional() }))
       .mutation(async ({ input }) => {
@@ -76,9 +84,10 @@ export const appRouter = router({
         if (!(await isActiveSubscriber(subscriptionId))) {
           throw new TRPCError({ code: "FORBIDDEN", message: "An active Premium subscription is required to track a route." });
         }
-        return { route: addTrackedRoute(route), upgraded: true };
+        const saved = await addTrackedRoute(route);
+        return { route: saved, upgraded: true };
       }),
-    remove: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => ({ success: removeTrackedRoute(input.id) })),
+    remove: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => ({ success: await removeTrackedRoute(input.id) })),
     scan: publicProcedure.mutation(async () => {
       const result = await scanTrackedRoutes();
       const notifications = await Promise.all(result.alerts.filter(item => item.notified).map(item => sendPriceDropNotification(item.route, item.dropPercent)));

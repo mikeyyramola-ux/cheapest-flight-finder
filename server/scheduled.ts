@@ -29,7 +29,7 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     // quietly refreshes only half its routes, or generates alerts nobody receives,
     // must never be able to look like a healthy run.
     const budget = liveBudgetStatus();
-    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6"; detail: string }> = [];
+    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6" | "E13"; detail: string }> = [];
     if (budget.alert.exhausted) {
       escalations.push({ level: "owner", code: "E3", detail: `alert credit pool exhausted (used ${budget.alert.used}/${budget.alert.limit}); free searches may be starving subscriber alerts` });
     }
@@ -38,6 +38,14 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     }
     if (notifications.length > delivered) {
       escalations.push({ level: "owner", code: "E6", detail: `${notifications.length - delivered} of ${notifications.length} alerts generated but not delivered` });
+    }
+    // E13: fares were priced live but nothing reached storage. The price-history
+    // dataset is the asset this product is built on, so a run that captures live
+    // prices and stores none of them has to read as a failure, not a healthy run.
+    // Gated on DATABASE_URL so an instance that has no storage configured yet does
+    // not cry wolf every night - it reports the missing points as data instead.
+    if (process.env.DATABASE_URL && result.liveRefreshed > 0 && result.observationsStored === 0) {
+      escalations.push({ level: "owner", code: "E13", detail: `${result.liveRefreshed} routes priced live but 0 history points stored; price history is not accruing` });
     }
 
     return res.json({
@@ -48,6 +56,11 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       // this is below routesChecked the prices were NOT all refreshed from live data.
       routesLivePriced: result.liveRefreshed,
       suppliersUsed: result.liveProviders,
+      // The asset: durable, supplier-tagged readings this run actually added.
+      historyPointsStored: result.observationsStored,
+      // Whether the routes priced here were the customer's saved ones or, on a cold
+      // start with an empty store, the demo defaults.
+      routesRestoredFromStorage: result.hydrated,
       notificationsAttempted: notifications.length,
       // Reported honestly - attempted vs actually delivered are not the same number.
       notificationsDelivered: delivered,

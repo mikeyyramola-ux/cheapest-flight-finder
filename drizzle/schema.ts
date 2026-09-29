@@ -47,7 +47,60 @@ export const partnerHealth = mysqlTable("partnerHealth", {
   statusIdx: index("partnerHealth_status_idx").on(table.status),
 }));
 
+/**
+ * Durable copy of a customer's tracked route.
+ *
+ * The previous store was an in-process Map, which is wiped on every serverless cold
+ * start - a saved route, its alert target and its price silently vanished and were
+ * re-seeded with sample values. This table is the source of truth; the Map is only a
+ * cache of it.
+ */
+export const trackedRoute = mysqlTable("trackedRoute", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  origin: varchar("origin", { length: 8 }).notNull(),
+  destination: varchar("destination", { length: 8 }).notNull(),
+  departDate: varchar("departDate", { length: 10 }).notNull(),
+  returnDate: varchar("returnDate", { length: 10 }),
+  targetPrice: int("targetPrice").notNull(),
+  currentPrice: int("currentPrice").notNull(),
+  status: mysqlEnum("status", ["watching", "alert"]).default("watching").notNull(),
+  alertChannel: mysqlEnum("alertChannel", ["Telegram", "WhatsApp"]).default("Telegram").notNull(),
+  lastCheckedAt: timestamp("lastCheckedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  odIdx: index("trackedRoute_od_idx").on(table.origin, table.destination),
+}));
+
+/**
+ * The price-history asset: one row per real observation, tagged with the supplier that
+ * produced it.
+ *
+ * Sample/seed numbers are deliberately never written here. Every row must carry a
+ * `provider`, so a chart can never blend two suppliers or present invented data as an
+ * airline quote. Reads additionally filter `source = 'live'` as a second guard.
+ */
+export const priceHistory = mysqlTable("priceHistory", {
+  id: int("id").autoincrement().primaryKey(),
+  origin: varchar("origin", { length: 8 }).notNull(),
+  destination: varchar("destination", { length: 8 }).notNull(),
+  departDate: varchar("departDate", { length: 10 }),
+  price: int("price").notNull(),
+  currency: varchar("currency", { length: 8 }).default("USD").notNull(),
+  /** Which supplier produced this observation, e.g. "scrappa" / "ignav". */
+  provider: varchar("provider", { length: 64 }).notNull(),
+  source: mysqlEnum("source", ["live", "seed", "estimate"]).default("live").notNull(),
+  purpose: varchar("purpose", { length: 16 }),
+  routeId: varchar("routeId", { length: 64 }),
+  capturedAt: timestamp("capturedAt").defaultNow().notNull(),
+}, table => ({
+  odTimeIdx: index("priceHistory_od_time_idx").on(table.origin, table.destination, table.capturedAt),
+  providerIdx: index("priceHistory_provider_idx").on(table.provider),
+}));
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
-
-// TODO: Add your tables here
+export type TrackedRouteRow = typeof trackedRoute.$inferSelect;
+export type InsertTrackedRoute = typeof trackedRoute.$inferInsert;
+export type PriceHistoryRow = typeof priceHistory.$inferSelect;
+export type InsertPriceHistory = typeof priceHistory.$inferInsert;

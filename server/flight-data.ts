@@ -1,3 +1,6 @@
+import { loadLiveHistory, loadPersistedRoutes, persistRoute, recordPricePoint, removePersistedRoute, type PersistableRoute } from "./price-store";
+import type { PriceHistoryRow, TrackedRouteRow } from "../drizzle/schema";
+
 export type Cabin = "Economy" | "Premium economy" | "Business";
 
 export type FlightOffer = {
@@ -81,6 +84,164 @@ export function routeKey(origin: string, destination: string) {
   return `${origin.toUpperCase()}-${destination.toUpperCase()}`;
 }
 
+/* ---------------------------------------------------------------------------------
+ * Storage-backed state.
+ *
+ * The Map below is a cache, not the source of truth. It used to be the source of
+ * truth, which meant every serverless cold start discarded whatever a customer had
+ * saved and put the demo routes back on their dashboard.
+ * --------------------------------------------------------------------------------- */
+
+/** Live price series read from storage, keyed by "ORIG-DEST". The key only exists
+ *  once a load has been attempted, so "no history yet" stays distinguishable from
+ *  "not loaded yet" - the latter must never be read as the former. */
+const liveHistoryCache = new Map<string, PriceHistoryPoint[]>();
+const inFlightHistoryLoads = new Map<string, Promise<void>>();
+let routesHydration: Promise<boolean> | null = null;
+
+/** When each route was genuinely priced, kept beside the cache so a scan that cannot
+ *  re-price a route does not overwrite its real timestamp with a guess. */
+const lastCheckedAtById = new Map<string, Date>();
+
+/** Local calendar day of an observation, so day boundaries match when it was seen. */
+function dayLabel(at: Date): string {
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Turns stored rows into the series a chart should draw.
+ *
+ * Every observation carries the travel date it priced, and tracked routes slide
+ * their travel date forward day by day, so plotting them all together would draw
+ * two different journeys as one trend. We keep only the rows sharing the travel
+ * date of the most recent observation - one coherent journey through time - and
+ * collapse same-day duplicates to the lowest price seen, which is what a price
+ * chart is understood to mean.
+ */
+function toSeries(rows: PriceHistoryRow[]): PriceHistoryPoint[] {
+  if (rows.length === 0) return [];
+  const latest = rows[0].departDate;
+  const coherent = latest ? rows.filter(row => row.departDate === latest) : rows;
+  const lowestPerDay = new Map<string, number>();
+  for (const row of coherent) {
+    const day = dayLabel(row.capturedAt);
+    const previous = lowestPerDay.get(day);
+    if (previous === undefined || row.price < previous) lowestPerDay.set(day, row.price);
+  }
+  return Array.from(lowestPerDay, ([date, price]) => ({ date, price })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+/** Span actually covered by the series, taken from the data rather than a claim. */
+function windowSpanDays(points: PriceHistoryPoint[]): number {
+  if (points.length < 2) return 0;
+  const first = Date.parse(`${points[0].date}T00:00:00Z`);
+  const last = Date.parse(`${points[points.length - 1].date}T00:00:00Z`);
+  if (Number.isNaN(first) || Number.isNaN(last)) return 0;
+  return Math.max(0, Math.round((last - first) / 86_400_000));
+}
+
+function sinceLabel(at: Date): string {
+  const minutes = Math.max(0, Math.round((Date.now() - at.getTime()) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} d ago`;
+}
+
+function rowToRoute(row: TrackedRouteRow): TrackedRoute {
+  return {
+    id: row.id,
+    origin: row.origin,
+    destination: row.destination,
+    departDate: row.departDate,
+    returnDate: row.returnDate ?? "",
+    targetPrice: row.targetPrice,
+    currentPrice: row.currentPrice,
+    // Deliberately recomputed rather than stored: an average belongs to the series
+    // that produced it, so it must move the moment new live observations land.
+    historicalAverage: getHistoricalAverage(row.origin, row.destination),
+    lastChecked: row.lastCheckedAt ? sinceLabel(row.lastCheckedAt) : "not checked yet",
+    status: row.status,
+    alertChannel: row.alertChannel,
+  };
+}
+
+function toPersistable(route: TrackedRoute, lastCheckedAt: Date | null): PersistableRoute {
+  return {
+    id: route.id,
+    origin: route.origin,
+    destination: route.destination,
+    departDate: route.departDate,
+    returnDate: route.returnDate,
+    targetPrice: route.targetPrice,
+    currentPrice: route.currentPrice,
+    status: route.status,
+    alertChannel: route.alertChannel,
+    lastCheckedAt,
+  };
+}
+
+/**
+ * Restores tracked routes from storage, at most once per container. An empty store
+ * is not a failure - a brand-new instance starts on the demo routes and adopts
+ * storage the first time a route is saved.
+ */
+export function ensureRoutesHydrated(): Promise<boolean> {
+  if (!routesHydration) {
+    routesHydration = loadPersistedRoutes()
+      .then(rows => {
+        if (rows.length > 0) {
+          trackedRoutes.clear();
+          for (const row of rows) {
+            trackedRoutes.set(row.id, rowToRoute(row));
+            if (row.lastCheckedAt) lastCheckedAtById.set(row.id, row.lastCheckedAt);
+          }
+        }
+        return rows.length > 0;
+      })
+      .catch(error => {
+        console.warn("[flight-data] route hydration failed:", error instanceof Error ? error.message : error);
+        // Clear rather than memoise the failure, so a later call can retry.
+        routesHydration = null;
+        return false;
+      });
+  }
+  return routesHydration;
+}
+
+/**
+ * Loads the live series for a city pair into the cache. Routers await this before
+ * reading `getRouteHistory`, which stays synchronous for the rest of the codebase.
+ */
+export function ensureHistoryLoaded(origin: string, destination: string): Promise<void> {
+  const key = routeKey(origin, destination);
+  if (liveHistoryCache.has(key)) return Promise.resolve();
+  const pending = inFlightHistoryLoads.get(key);
+  if (pending) return pending;
+
+  const load = loadLiveHistory(origin, destination)
+    .then(rows => {
+      liveHistoryCache.set(key, toSeries(rows));
+    })
+    .catch(error => {
+      console.warn("[flight-data] history load failed:", error instanceof Error ? error.message : error);
+      // Left uncached on purpose: the next reader retries instead of inheriting a
+      // permanent "no history" answer from one bad request.
+    })
+    .finally(() => {
+      inFlightHistoryLoads.delete(key);
+    });
+  inFlightHistoryLoads.set(key, load);
+  return load;
+}
+
+/** Drops a cached series so the next read picks up freshly recorded observations. */
+function invalidateHistory(origin: string, destination: string) {
+  liveHistoryCache.delete(routeKey(origin, destination));
+}
+
+
 /** Provenance of a price series. The client MUST label charts from this value -
  *  never hardcode "Live" in the UI, or sample data gets sold as live airline quotes. */
 export type HistorySource = "seed" | "estimate" | "live";
@@ -94,6 +255,15 @@ export interface RouteHistory {
 
 export function getRouteHistory(origin: string, destination: string): RouteHistory {
   const key = routeKey(origin, destination);
+  const live = liveHistoryCache.get(key);
+  // One observed fare beats any number of samples, so the series turns live the moment
+  // we have read a real price - waiting for a second day would mean showing a customer
+  // fabricated numbers while a genuine one sits in storage. The window is never
+  // reported as zero: a single reading represents one day, and a zero would make the
+  // chart label this live series as a sample one.
+  if (live && live.length >= 1) {
+    return { points: live.slice(), source: "live", windowDays: Math.max(1, windowSpanDays(live)) };
+  }
   const known = seedHistory[key];
   if (known) {
     // Seed rows are weekly samples, so the real window is points x 7 days.
@@ -511,22 +681,41 @@ export function listTrackedRoutes() {
   return Array.from(trackedRoutes.values());
 }
 
-export function addTrackedRoute(input: Omit<TrackedRoute, "id" | "currentPrice" | "historicalAverage" | "lastChecked" | "status">) {
+/**
+ * Saves a tracked route.
+ *
+ * Storage is awaited rather than fire-and-forget: a response that returns before
+ * the row lands can be frozen out of the write, and the customer would watch their
+ * saved route reappear as a demo route on the next cold start. Hydration runs first
+ * so it cannot later clear a route we have just added.
+ */
+export async function addTrackedRoute(input: Omit<TrackedRoute, "id" | "currentPrice" | "historicalAverage" | "lastChecked" | "status">) {
+  await ensureRoutesHydrated();
   const id = `route-${Date.now()}`;
   const currentPrice = seedOffers.find(offer => offer.origin === input.origin && offer.destination === input.destination)?.price ?? Math.round(getHistoricalAverage(input.origin, input.destination) * 0.92);
   const route: TrackedRoute = { ...input, id, currentPrice, historicalAverage: getHistoricalAverage(input.origin, input.destination), lastChecked: "just now", status: currentPrice <= input.targetPrice ? "alert" : "watching" };
   trackedRoutes.set(id, route);
+  await persistRoute(toPersistable(route, new Date()));
   return route;
 }
 
-export function removeTrackedRoute(id: string) {
-  return trackedRoutes.delete(id);
+export async function removeTrackedRoute(id: string) {
+  await ensureRoutesHydrated();
+  const removed = trackedRoutes.delete(id);
+  // The in-memory delete already happened; the row is removed too so the route
+  // cannot resurrect itself on the next cold start.
+  await removePersistedRoute(id);
+  return removed;
 }
 
 export async function scanTrackedRoutes() {
+  // Restore saved routes first. Pricing a cold-started container's demo routes would
+  // both miss the customer's real watch list and report a clean run over it.
+  const hydrated = await ensureRoutesHydrated();
   const routes = listTrackedRoutes();
   let liveRefreshed = 0;
   let liveProviders = 0;
+  let observationsStored = 0;
 
   // Refresh against live fares BEFORE deciding anything. The previous version compared
   // currentPrice against the target without ever asking a supplier, so every "price
@@ -551,18 +740,58 @@ export async function scanTrackedRoutes() {
     liveRefreshed += 1;
     if (liveOffer.provider) liveProviders += 1;
     trackedRoutes.set(route.id, { ...route, currentPrice: liveOffer.price, lastChecked: "just now" });
+    const checkedAt = new Date();
+    lastCheckedAtById.set(route.id, checkedAt);
+
+    // This is the asset: one durable, supplier-tagged reading of a real fare. It is
+    // written only when a supplier actually answered, so the series can never be
+    // padded with sample numbers to look busier than it is.
+    const stored = await recordPricePoint({
+      origin: route.origin,
+      destination: route.destination,
+      departDate: route.departDate,
+      price: liveOffer.price,
+      currency: liveOffer.currency,
+      provider: liveOffer.provider ?? "unknown",
+      purpose: "scan",
+      routeId: route.id,
+    });
+    if (stored) {
+      observationsStored += 1;
+      // Drop the cached series so the next read shows what was just recorded.
+      invalidateHistory(route.origin, route.destination);
+    }
   }
 
+  // Persisted after pricing, never before: the row must reflect the price we last
+  // actually observed, not the sample value the route was created with.
+  const persistQueue: Array<Promise<unknown>> = [];
+
+  // Load every route's live series BEFORE any alert is decided. Without this the
+  // average is still the value the route was seeded with, so each drop percentage is
+  // measured against a number no supplier ever quoted - which is precisely the fault
+  // this storage was introduced to remove.
+  await Promise.all(routes.map(route => ensureHistoryLoaded(route.origin, route.destination)));
+
   const alerts = listTrackedRoutes().map(route => {
-    const dropPercent = Math.round((1 - route.currentPrice / route.historicalAverage) * 100);
+    // Recomputed rather than trusted from creation time. Once live readings exist the
+    // average must follow them, otherwise every drop percentage is still measured
+    // against the value the route happened to be seeded with.
+    const historicalAverage = getHistoricalAverage(route.origin, route.destination) || route.historicalAverage;
+    const dropPercent = historicalAverage > 0 ? Math.round((1 - route.currentPrice / historicalAverage) * 100) : 0;
     const isAlert = route.currentPrice <= route.targetPrice || dropPercent >= 15;
-    const updated = { ...route, status: isAlert ? "alert" as const : "watching" as const, lastChecked: route.lastChecked };
+    const updated = { ...route, historicalAverage, status: isAlert ? "alert" as const : "watching" as const, lastChecked: route.lastChecked };
     trackedRoutes.set(route.id, updated);
+    persistQueue.push(persistRoute(toPersistable(updated, lastCheckedAtById.get(updated.id) ?? null)));
     return { route: updated, dropPercent, notified: isAlert };
   });
+  // Awaited rather than fired and forgotten: returning is what lets the runtime
+  // freeze this instance, so a write still in flight here is a write we lose.
+  await Promise.all(persistQueue);
   // liveRefreshed is reported so a caller can never claim "all routes checked" when
-  // only some of them were actually priced by a supplier.
-  return { checkedAt: new Date().toISOString(), routesTotal: routes.length, liveRefreshed, liveProviders, alerts };
+  // only some of them were actually priced by a supplier. observationsStored says the
+  // same for the history table - an attempt and a stored row are not the same thing.
+  return { checkedAt: new Date().toISOString(), routesTotal: routes.length, liveRefreshed, liveProviders, observationsStored, hydrated, alerts };
 }
 
 export interface NotificationResult {
