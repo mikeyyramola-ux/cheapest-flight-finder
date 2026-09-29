@@ -4,7 +4,7 @@ export const premiumPlanPayPal = {
   name: "Premium Member (PayPal)",
   price: 9.99,
   interval: "month",
-  features: ["Instant price-drop alerts", "Historical price trends", "Unlimited route tracking", "Priority deal scans"],
+  features: ["Instant price-drop alerts", "Historical price trends", "Unlimited route tracking"],
 };
 
 const PAYPAL_API_BASE = process.env.PAYPAL_MODE === "live"
@@ -68,7 +68,7 @@ export async function createPayPalCheckout(input: {
   name?: string | null;
 }) {
   if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET || !PAYPAL_PREMIUM_PLAN_ID) {
-    return { mode: "demo" as const, url: `/paywall?checkout=demo&route=${encodeURIComponent(input.origin)}&provider=paypal` };
+    return { mode: "demo" as const, url: `/paywall?checkout=demo&route=${encodeURIComponent(input.origin)}&provider=paypal`, subscriptionId: "" };
   }
 
   const token = await getPayPalAccessToken();
@@ -96,7 +96,25 @@ export async function createPayPalCheckout(input: {
   });
 
   const approveLink = subscription.links?.find((l: any) => l.rel === "approve")?.href;
-  return { mode: "paypal" as const, url: approveLink ?? "" };
+  // The client needs this ID: it is the handle it later hands back to
+  // billing.verifyPayPal so a payer can prove they actually subscribed.
+  return { mode: "paypal" as const, url: approveLink ?? "", subscriptionId: String(subscription.id ?? "") };
+}
+
+/**
+ * Ask PayPal, directly and server-side, whether a subscription is still active.
+ *
+ * This deliberately does NOT consult a database. It is the one piece of state we
+ * can verify without a user store, and it means a paying customer's access does
+ * not depend on infrastructure we have not provisioned yet.
+ */
+export async function getPayPalSubscription(subscriptionId: string) {
+  // PayPal subscription IDs look like "I-1AB23C4D5E6F7G8H9I0J". Validate first, before
+  // anything else, so malformed input never reaches the API path - this must not be
+  // usable as an open proxy against PayPal on our credentials.
+  if (!/^I-[A-Z0-9]{5,50}$/i.test(subscriptionId)) throw new Error("Malformed subscription id");
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) throw new Error("PayPal is not configured");
+  return paypalFetch(`/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 
 export async function handlePayPalWebhook(
