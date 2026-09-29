@@ -7,6 +7,9 @@
       "maxDuration": 60
     }
   },
+  "crons": [
+    { "path": "/api/scheduled/scan-flight-deals", "schedule": "0 12 * * *" }
+  ],
   "routes": [
     { "src": "/privacy\\.html", "dest": "/privacy.html" },
     { "src": "/terms\\.html", "dest": "/terms.html" },
