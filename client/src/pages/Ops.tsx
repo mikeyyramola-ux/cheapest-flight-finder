@@ -257,6 +257,37 @@ function TokenGate({ onSubmit, error, busy }: { onSubmit: (value: string) => voi
   );
 }
 
+/**
+ * Takes an operations key supplied in the query string, or null when none was given.
+ *
+ * Remembering the key and honouring it are separate decisions, and neither optional
+ * part may veto the other or the result. Storage is denied outright inside a
+ * cross-origin iframe - the SecurityError is thrown by the `sessionStorage` property
+ * read itself - and the original version called setItem *before* setToken, so a blocked
+ * store threw out of the whole branch and `?token=` quietly landed on the key gate even
+ * though the key was present and valid. Production proved that with this page embedded
+ * in the PRIME dashboard; `Ops.key.test.ts` pins the ordering.
+ */
+export function takeUrlKey(
+  search: string,
+  remember: (key: string) => void,
+  stripFromAddress: () => void,
+): string | null {
+  const key = new URLSearchParams(search).get("token");
+  if (!key) return null;
+  try {
+    remember(key);
+  } catch {
+    // Not remembered - it still governs this load.
+  }
+  try {
+    stripFromAddress();
+  } catch {
+    // The address bar keeps showing it instead of losing it.
+  }
+  return key;
+}
+
 export default function Ops() {
   const [token, setToken] = useState("");
   const [board, setBoard] = useState<Board | null>(null);
@@ -268,14 +299,16 @@ export default function Ops() {
   // string is moved into sessionStorage and stripped from the URL so it does not sit
   // in history or in a screenshot.
   useEffect(() => {
+    const fromUrl = takeUrlKey(
+      window.location.search,
+      key => sessionStorage.setItem(STORAGE_KEY, key),
+      () => window.history.replaceState(null, "", window.location.pathname),
+    );
+    if (fromUrl) {
+      setToken(fromUrl);
+      return;
+    }
     try {
-      const fromUrl = new URLSearchParams(window.location.search).get("token");
-      if (fromUrl) {
-        sessionStorage.setItem(STORAGE_KEY, fromUrl);
-        setToken(fromUrl);
-        window.history.replaceState(null, "", window.location.pathname);
-        return;
-      }
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) setToken(saved);
     } catch {
