@@ -1,4 +1,4 @@
-import { index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -96,6 +96,31 @@ export const priceHistory = mysqlTable("priceHistory", {
 }, table => ({
   odTimeIdx: index("priceHistory_od_time_idx").on(table.origin, table.destination, table.capturedAt),
   providerIdx: index("priceHistory_provider_idx").on(table.provider),
+}));
+
+/**
+ * Month-wide ledger of credits we have actually spent with each supplier.
+ *
+ * None of our suppliers expose a usage endpoint, so the provider's own dashboard can
+ * never tell us how close we are to the free ceiling. This table is therefore the
+ * ONLY thing that can warn us before the pool runs dry - and running dry means a
+ * subscriber's price-drop alert goes unsent.
+ *
+ * One row per (supplier, period): `period` is `YYYY-MM` for refilling pools and
+ * `lifetime` for the one-time pools. Incremented at the point a request is billed,
+ * never on failure, so the count tracks real spend rather than attempts.
+ */
+export const creditUsage = mysqlTable("creditUsage", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Billing identity, e.g. "Scrappa (Google Flights)", "Ignav", "Bright Data". */
+  provider: varchar("provider", { length: 64 }).notNull(),
+  /** `2026-09` for a monthly allowance, `lifetime` for a one-time allowance. */
+  period: varchar("period", { length: 16 }).notNull(),
+  used: int("used").default(0).notNull(),
+  creditLimit: int("creditLimit").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  providerPeriodUq: uniqueIndex("creditUsage_provider_period_uq").on(table.provider, table.period),
 }));
 
 export type User = typeof users.$inferSelect;

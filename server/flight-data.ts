@@ -1,4 +1,5 @@
 import { loadLiveHistory, loadPersistedRoutes, persistRoute, recordPricePoint, removePersistedRoute, type PersistableRoute } from "./price-store";
+import { chargeQuota } from "./quota";
 import type { PriceHistoryRow, TrackedRouteRow } from "../drizzle/schema";
 
 export type Cabin = "Economy" | "Premium economy" | "Business";
@@ -352,8 +353,21 @@ const liveChargedThisInstance: Record<LivePurpose, number> = { search: 0, alert:
 
 const liveBudgetExhausted = (purpose: LivePurpose) => liveChargedThisInstance[purpose] >= LIVE_BUDGET_PER_INSTANCE[purpose];
 
-const chargeLiveSearch = (purpose: LivePurpose) => {
+/**
+ * Charges the per-instance pool AND the month-wide supplier quota.
+ *
+ * The two are different things: `liveChargedThisInstance` caps one container so a
+ * burst of searches cannot burn every free allowance in a sitting, while the quota
+ * ledger is the month-wide total across all instances - the only number that can
+ * tell us we are 75% of the way to an empty pool (E14). Both are incremented at the
+ * same instant, and only ever for a request the supplier actually answered.
+ */
+const chargeLiveSearch = async (purpose: LivePurpose, supplierName?: string) => {
   liveChargedThisInstance[purpose] += 1;
+  // Awaited rather than fire-and-forget: a serverless runtime freezes the container
+  // as soon as the response is sent, so a write left in flight is a credit spent but
+  // never recorded - and an undercount delays the very warning E14 exists to give.
+  if (supplierName) await chargeQuota(supplierName);
 };
 
 /**
@@ -561,7 +575,7 @@ async function getLiveLeg(provider: LiveProvider, leg: LiveLeg, purpose: LivePur
 
   const fares = await provider.search(leg, apiKey);
   if (!fares || fares.length === 0) return null;
-  chargeLiveSearch(purpose);
+  await chargeLiveSearch(purpose, provider.id);
 
   const offers = fares.map((fare, index) => toOffer(fare, leg, provider.id, index)).filter(offer => offer.price > 0);
   if (offers.length === 0) return null;

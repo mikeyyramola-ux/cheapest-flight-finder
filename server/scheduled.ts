@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { liveBudgetStatus, scanTrackedRoutes, sendPriceDropNotification } from "./flight-data";
+import { loadQuotaStatus, QUOTA_WARN_PERCENT } from "./quota";
 import { checkPartnerEndpoints } from "./partner-health";
 import { sdk } from "./_core/sdk";
 
@@ -29,7 +30,8 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     // quietly refreshes only half its routes, or generates alerts nobody receives,
     // must never be able to look like a healthy run.
     const budget = liveBudgetStatus();
-    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6" | "E13"; detail: string }> = [];
+    const quotas = await loadQuotaStatus();
+    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6" | "E13" | "E14"; detail: string }> = [];
     if (budget.alert.exhausted) {
       escalations.push({ level: "owner", code: "E3", detail: `alert credit pool exhausted (used ${budget.alert.used}/${budget.alert.limit}); free searches may be starving subscriber alerts` });
     }
@@ -46,6 +48,21 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     // not cry wolf every night - it reports the missing points as data instead.
     if (process.env.DATABASE_URL && result.liveRefreshed > 0 && result.observationsStored === 0) {
       escalations.push({ level: "owner", code: "E13", detail: `${result.liveRefreshed} routes priced live but 0 history points stored; price history is not accruing` });
+    }
+    // E14: a supplier's allowance is 75% spent, with a quarter of the pool still
+    // left to act on. None of the suppliers expose a usage endpoint, so this ledger
+    // is the ONLY warning that exists - and it covers every supplier we track, not
+    // just the one currently answering, so a reserve being drained in the background
+    // is just as visible as the primary pool running low.
+    for (const quota of quotas) {
+      if (!quota.warn) continue;
+      const state = quota.exhausted ? "EXHAUSTED" : `${quota.percent}% used`;
+      const refill = quota.period === "lifetime" ? "one-time allowance - it does not refill" : `resets ${quota.period}`;
+      escalations.push({
+        level: "owner",
+        code: "E14",
+        detail: `${quota.label} quota ${state} (${quota.used}/${quota.limit}, ${refill}); ${quota.source === "database" ? "month-wide count" : "instance view only - storage unreachable"} - top up or cut polling before it hits 100%`,
+      });
     }
 
     return res.json({
@@ -68,6 +85,21 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       notificationsAttempted: notifications.length,
       // Reported honestly - attempted vs actually delivered are not the same number.
       notificationsDelivered: delivered,
+      // Credit position of every tracked supplier. Reported on EVERY run, not only
+      // when E14 fires, so the trend is visible long before the threshold is hit.
+      quotas: quotas.map(quota => ({
+        key: quota.key,
+        provider: quota.label,
+        used: quota.used,
+        limit: quota.limit,
+        percent: quota.percent,
+        period: quota.period,
+        warn: quota.warn,
+        exhausted: quota.exhausted,
+        wired: quota.wired,
+        source: quota.source,
+      })),
+      quotaWarnPercent: QUOTA_WARN_PERCENT,
       escalations,
       failures: notifications.filter(item => !item.delivered).map(item => ({ channel: item.channel, reason: item.reason })),
     });
