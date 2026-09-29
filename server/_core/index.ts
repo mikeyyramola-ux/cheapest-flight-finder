@@ -12,6 +12,7 @@ import { handleStripeWebhook } from "../stripe";
 import { handlePayPalWebhook } from "../paypal";
 import { monitorPartnersHandler, scanFlightDealsHandler } from "../scheduled";
 import { opsQuotasHandler } from "../ops";
+import { pageViewPixelHandler, pageViewReadHandler } from "../pageview";
 import { DESTINATION_PATHS } from "@shared/destinations";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -71,6 +72,13 @@ export async function createApp(): Promise<{ app: Express; server: Server }> {
   // Owner-only quota board. Registered before the body parser and the SPA fallback so
   // it is answered as an API route and never as a rendered page.
   app.get("/api/ops/quotas", opsQuotasHandler);
+  // First-party page-view beacon (Option B, owner decision 2026-09-29). A GET pixel
+  // counts a hit without CORS, without a body, and without tripping the read-only
+  // POST gate; the read endpoint serves the dashboard chart and carries CRON_SECRET
+  // so the counts are never public. Registered before the body parser and the SPA
+  // fallback so both are answered as API routes and never as a rendered page.
+  app.get("/api/pv.gif", pageViewPixelHandler);
+  app.get("/api/pv/read", pageViewReadHandler);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

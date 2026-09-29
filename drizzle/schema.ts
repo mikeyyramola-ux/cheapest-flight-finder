@@ -123,6 +123,36 @@ export const creditUsage = mysqlTable("creditUsage", {
   providerPeriodUq: uniqueIndex("creditUsage_provider_period_uq").on(table.provider, table.period),
 }));
 
+/**
+ * First-party page-view counts (Option B, owner decision 2026-09-29).
+ *
+ * Vercel Web Analytics measures fareloop.in, but it cannot see a Cloudflare Pages
+ * property, so getmingle.pages.dev had no measurable traffic anywhere. Rather than
+ * borrow a second third party for a site we own, that site reports to us: a 1x1 GET
+ * pixel increments one row per (site, day, path).
+ *
+ * One row per page per day - not one per visitor - so the free tier holds a few
+ * hundred rows and every count is a hit we actually served. Nothing seeds this and
+ * nothing estimates it: a failed write leaves the previous number standing instead
+ * of inventing a fresh one.
+ */
+export const pageView = mysqlTable("pageView", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Property that reported the hit, e.g. "mingle". */
+  site: varchar("site", { length: 16 }).notNull(),
+  /** UTC day of the hit as `YYYY-MM-DD`, so range scans are plain string compares. */
+  day: varchar("day", { length: 10 }).notNull(),
+  /** Path the hit came from (hash route included), truncated before storage. */
+  path: varchar("path", { length: 255 }).notNull(),
+  hits: int("hits").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  // The unique key is what makes `ON DUPLICATE KEY UPDATE hits = hits + 1` one round
+  // trip - a repeat hit increments instead of appending. Its (site, day) prefix also
+  // serves every read this dashboard does, so no second index is needed.
+  siteDayPathUq: uniqueIndex("pageView_site_day_path_uq").on(table.site, table.day, table.path),
+}));
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type TrackedRouteRow = typeof trackedRoute.$inferSelect;
