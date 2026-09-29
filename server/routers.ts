@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -16,6 +17,37 @@ const searchInput = z.object({
   passengers: z.number().int().min(1).max(9),
   tripType: z.enum(["roundTrip", "oneWay"]).optional(),
 });
+
+/**
+ * The premium gate, enforced on the SERVER and without a database: the caller
+ * presents a PayPal subscription id and we ask PayPal itself whether it is ACTIVE.
+ * Anything else - no id, malformed id, unapproved, cancelled, or a verification
+ * that could not be completed - fails closed.
+ *
+ * Results are cached briefly so a burst of requests cannot hammer PayPal's API
+ * on our credentials.
+ *
+ * Known limitation, lifted the moment a user store exists: an active id is not
+ * yet bound to a specific person, so anyone who obtains one could replay it.
+ */
+const premiumCheckCache = new Map<string, { active: boolean; expiresAt: number }>();
+const PREMIUM_CACHE_MS = 5 * 60 * 1000;
+
+async function isActiveSubscriber(subscriptionId?: string): Promise<boolean> {
+  if (!subscriptionId) return false;
+  const cached = premiumCheckCache.get(subscriptionId);
+  if (cached && Date.now() < cached.expiresAt) return cached.active;
+  let active = false;
+  try {
+    const sub = (await getPayPalSubscription(subscriptionId)) as { status?: string };
+    active = String(sub.status ?? "").toUpperCase() === "ACTIVE";
+  } catch {
+    active = false; // fail closed: an error is never treated as authorised
+  }
+  if (premiumCheckCache.size > 200) premiumCheckCache.clear();
+  premiumCheckCache.set(subscriptionId, { active, expiresAt: Date.now() + PREMIUM_CACHE_MS });
+  return active;
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -36,7 +68,16 @@ export const appRouter = router({
   }),
   tracker: router({
     list: publicProcedure.query(() => ({ routes: listTrackedRoutes(), plan: "demo-free" as const })),
-    add: publicProcedure.input(z.object({ origin: z.string().min(3), destination: z.string().min(3), departDate: z.string(), returnDate: z.string(), targetPrice: z.number().min(1), alertChannel: z.enum(["Telegram", "WhatsApp"]) })).mutation(({ input }) => ({ route: addTrackedRoute(input), upgraded: true })),
+    add: publicProcedure
+      .input(z.object({ origin: z.string().min(3), destination: z.string().min(3), departDate: z.string(), returnDate: z.string(), targetPrice: z.number().min(1), alertChannel: z.enum(["Telegram", "WhatsApp"]), subscriptionId: z.string().max(64).optional() }))
+      .mutation(async ({ input }) => {
+        const { subscriptionId, ...route } = input;
+        // Enforced here, not in the browser: the paywall is a server decision.
+        if (!(await isActiveSubscriber(subscriptionId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "An active Premium subscription is required to track a route." });
+        }
+        return { route: addTrackedRoute(route), upgraded: true };
+      }),
     remove: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => ({ success: removeTrackedRoute(input.id) })),
     scan: publicProcedure.mutation(async () => {
       const result = scanTrackedRoutes();
