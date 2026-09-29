@@ -47,6 +47,13 @@ describe("destination dataset", () => {
     expect(airportOptions).toHaveLength(DESTINATIONS.length);
     expect(Object.keys(airportOptions[0] ?? {}).sort()).toEqual(["airport", "city", "code", "country"]);
     for (const hub of POPULAR_ORIGIN_HUBS) expect(destinationByCode(hub)).toBeTruthy();
+    // Home validates ?from= / ?to= against `airportOptions`, and Destination.tsx builds
+    // those links from POPULAR_ORIGIN_HUBS and DESTINATIONS. If any of these codes were
+    // missing from the selectable set, the CTA would stop guessing and serve the default
+    // route instead - so every code we publish a link for has to resolve here.
+    const selectable = new Set(airportOptions.map(option => option.code));
+    for (const hub of POPULAR_ORIGIN_HUBS) expect(selectable.has(hub), `${hub} must be selectable`).toBe(true);
+    for (const dest of DESTINATIONS) expect(selectable.has(dest.code), `${dest.code} must be selectable`).toBe(true);
     expect(destinationBySlug("not-a-city")).toBeUndefined();
   });
 

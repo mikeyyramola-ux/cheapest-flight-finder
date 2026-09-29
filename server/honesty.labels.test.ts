@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -21,6 +23,32 @@ const homeCopy = home
   .split("\n")
   .filter(line => !line.trimStart().startsWith("//") && !line.trimStart().startsWith("*"))
   .join("\n");
+
+// Every client source file, so a supplier name cannot creep back in through a
+// component other than Home.
+const clientRoot = fileURLToPath(new URL("../client/src/", import.meta.url));
+const clientFiles: string[] = [];
+const walk = (dir: string) => {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walk(full);
+    else if (/\.tsx?$/.test(entry)) clientFiles.push(full);
+  }
+};
+walk(clientRoot);
+const clientText = clientFiles.map(file => readFileSync(file, "utf8")).join("\n");
+
+describe("we do not claim an affiliation we do not have", () => {
+  it("never names an upstream fare supplier in client copy", () => {
+    // `offer.provider` is plumbing, not endorsement: it is the supplier we buy
+    // credits from (quota.ts maps "Google Flights" -> scrappa). We hold no Google
+    // relationship, and a vendor the customer never deals with tells them nothing
+    // they can check. The live label states liveness and quote count instead.
+    for (const name of ["Google Flights", "Scrappa", "Ignav"]) {
+      expect(clientText, `client source must not name ${name}`).not.toContain(name);
+    }
+  });
+});
 
 describe("no invented claims in the copy", () => {
   it("never hardcodes a price-change percentage", () => {
@@ -53,7 +81,7 @@ describe("live results are never labelled as sample", () => {
     // The original ternary only tested for "estimate", so source === "live" fell
     // through to the else and real quotes were captioned "Sample data (demo)".
     expect(home).toContain('searchMutation.data?.source === "live"');
-    expect(home).toContain("Live fares from");
+    expect(home).toContain("Live fares · ${searchMutation.data.offers.length} quotes");
   });
 
   it("keeps an honest label for the genuinely-sample default state", () => {
