@@ -113,21 +113,54 @@ export function getHistoricalAverage(origin: string, destination: string) {
 }
 
 /**
- * Live fares, from Scrappa's Google Flights endpoint (free tier: 500 credits/month,
- * no card on file so it cannot silently bill us).
+ * Live fares come from an ordered chain of $0 suppliers, so running out of one pool
+ * never stops us serving customers:
+ *
+ *   1. Scrappa (Google Flights) - 500 credits/month, recurring, no card on file
+ *   2. Ignav                   - 1,000 credits, one-time, no card on file
+ *
+ * Order is deliberate: spend the pool that refills every month before the one that
+ * does not. A supplier is only consulted when its key is configured, and it costs
+ * nothing to fail over (a failed request is not billed).
  *
  * This is the ONLY path allowed to emit a "Live fare". Every failure mode - no key,
- * out of credits (402), rate limited (429), upstream outage (503), timeout - returns
- * null, and the caller falls back to the sample/estimate path which is labelled as
- * such. We never invent a price and present it as live.
+ * out of credits (402), rate limited (429), upstream outage (503), timeout, empty
+ * result - moves to the next supplier, and if none answer we return null so the
+ * caller falls through to the sample/estimate path, which is labelled as such. We
+ * never invent a price and present it as live.
+ *
+ * Hard rule: both legs of one search come from the SAME supplier. If a supplier can
+ * price the outbound but not the return, we restart the search on the next supplier
+ * instead of stitching two sources into a single total.
  */
-const LIVE_FARES_URL = "https://scrappa.co/api/flights/one-way";
-// Recorded on every live offer so a supplier change can never be mistaken for a
-// genuine price movement (see FlightOffer.provider).
-const LIVE_PROVIDER = "Google Flights";
-// Safety net so a burst of searches cannot exhaust the monthly free allowance in
-// one sitting. Best-effort and per-instance (serverless memory is not shared),
-// with the 5-minute cache doing most of the work.
+type LiveLeg = { origin: string; destination: string; date: string; passengers: number };
+
+/** The normalised row every supplier must produce. */
+type RawFare = {
+  price: number;
+  currency: string;
+  durationMinutes: number;
+  stops: number;
+  airline: string;
+  airlineCode: string;
+  departureTime: string;
+  arrivalTime: string;
+  /** Omitted entirely when the supplier did not tell us - never guessed. */
+  baggage?: string;
+};
+
+type LiveProvider = {
+  /** Stamped onto every offer, so a supplier swap can never look like a price move. */
+  id: string;
+  /** Environment variable holding this supplier's key. Unset = supplier skipped. */
+  envKey: string;
+  search: (leg: LiveLeg, apiKey: string) => Promise<RawFare[] | null>;
+};
+
+// Safety net so a burst of searches cannot exhaust every free allowance in one
+// sitting. Counts only successful, non-empty responses (those are what get billed).
+// Per-instance and therefore best-effort - serverless memory is not shared - with
+// the caches below doing most of the work.
 const LIVE_SEARCH_CAP_PER_INSTANCE = 60;
 let liveSearchesThisInstance = 0;
 
@@ -153,63 +186,145 @@ type ScrappaFlight = {
 const formatDuration = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 const clockTime = (iso?: string) => (iso && iso.length >= 16 ? iso.slice(11, 16) : "--:--");
 
-async function fetchOneWayLiveFares(origin: string, destination: string, departureDate: string, passengers: number): Promise<FlightOffer[] | null> {
-  const apiKey = process.env.SCRAPPA_API_KEY;
-  if (!apiKey) return null;
-  if (liveSearchesThisInstance >= LIVE_SEARCH_CAP_PER_INSTANCE) return null;
+const scrappaProvider: LiveProvider = {
+  id: "Google Flights",
+  envKey: "SCRAPPA_API_KEY",
+  async search(leg, apiKey) {
+    try {
+      const url = new URL("https://scrappa.co/api/flights/one-way");
+      url.searchParams.set("origin", leg.origin);
+      url.searchParams.set("destination", leg.destination);
+      url.searchParams.set("departure_date", leg.date);
+      url.searchParams.set("adults", String(Math.min(9, Math.max(1, leg.passengers))));
+      url.searchParams.set("sort_by", "cheapest");
 
-  try {
-    const url = new URL(LIVE_FARES_URL);
-    url.searchParams.set("origin", origin);
-    url.searchParams.set("destination", destination);
-    url.searchParams.set("departure_date", departureDate);
-    url.searchParams.set("adults", String(Math.min(9, Math.max(1, passengers))));
-    url.searchParams.set("sort_by", "cheapest");
+      const response = await fetch(url, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(20_000) });
+      if (!response.ok) return null;
 
-    const response = await fetch(url, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(20_000) });
-    if (!response.ok) return null;
+      const payload = (await response.json()) as { flights?: ScrappaFlight[] };
+      const flights = Array.isArray(payload.flights) ? payload.flights : [];
+      if (flights.length === 0) return null;
+      liveSearchesThisInstance += 1;
 
-    const payload = (await response.json()) as { flights?: ScrappaFlight[] };
-    const flights = Array.isArray(payload.flights) ? payload.flights : [];
-    if (flights.length === 0) return null;
-
-    // Count only a response we actually consumed. The provider bills on HTTP 200,
-    // so a failing or empty upstream never eats the daily safety cap.
-    liveSearchesThisInstance += 1;
-
-    return flights
-      .slice(0, 6)
-      .map((flight, index) => {
-        const legs = Array.isArray(flight.legs) ? flight.legs : [];
-        const first = legs[0] ?? {};
-        const last = legs[legs.length - 1] ?? first;
-        const minutes = flight.total_duration_minutes ?? 0;
+      return flights.slice(0, 6).map(flight => {
+        const segments = Array.isArray(flight.legs) ? flight.legs : [];
+        const first = segments[0] ?? {};
+        const last = segments[segments.length - 1] ?? first;
         return {
-          id: `live-${origin}-${destination}-${departureDate}-${index}`,
-          airline: flight.airline_name || first.airline || "Airline",
-          airlineCode: (first.airline || "").slice(0, 2).toUpperCase() || "FL",
-          origin,
-          destination,
-          departureDate,
-          departureTime: clockTime(first.departure_time),
-          arrivalTime: clockTime(last.arrival_time),
-          duration: minutes > 0 ? formatDuration(minutes) : "—",
-          stops: flight.stops ?? 0,
           price: flight.price ?? 0,
           currency: flight.currency || "USD",
-          cabin: "Economy" as const,
-          // Deliberately no baggage claim: this endpoint does not return it.
-          baggage: "Baggage shown at booking",
-          bookingUrl: `https://www.google.com/travel/flights?q=${encodeURIComponent(`${origin} to ${destination}`)}`,
-          isBest: index === 0,
-          source: "Live fare" as const,
-          provider: LIVE_PROVIDER,
-        } satisfies FlightOffer;
-      })
-      .filter(offer => offer.price > 0);
-  } catch {
-    return null;
-  }
+          durationMinutes: flight.total_duration_minutes ?? 0,
+          stops: flight.stops ?? 0,
+          airline: flight.airline_name || first.airline || "Airline",
+          airlineCode: (first.airline || "").slice(0, 2).toUpperCase() || "FL",
+          departureTime: clockTime(first.departure_time),
+          arrivalTime: clockTime(last.arrival_time),
+          // Deliberately no baggage field: this endpoint does not return one.
+        } satisfies RawFare;
+      });
+    } catch {
+      return null;
+    }
+  },
+};
+
+type IgnavSegment = {
+  marketing_carrier_code?: string | null;
+  operating_carrier_name?: string | null;
+  departure_time_local?: string;
+  arrival_time_local?: string;
+};
+
+type IgnavItinerary = {
+  price?: { amount?: number; currency?: string };
+  outbound?: { carrier?: string; duration_minutes?: number; segments?: IgnavSegment[] };
+  bags?: { carry_on?: number; checked?: number };
+};
+
+/** Only ever states baggage counts Ignav actually returned; undefined = not told. */
+function formatIgnavBags(bags?: { carry_on?: number; checked?: number }): string | undefined {
+  if (!bags) return undefined;
+  const carryOn = bags.carry_on ?? 0;
+  const checked = bags.checked ?? 0;
+  if (carryOn === 0 && checked === 0) return "No bags included";
+  const parts: string[] = [];
+  if (carryOn > 0) parts.push(`${carryOn} carry-on`);
+  if (checked > 0) parts.push(`${checked} checked bag${checked === 1 ? "" : "s"}`);
+  return parts.join(" + ");
+}
+
+const ignavProvider: LiveProvider = {
+  id: "Ignav",
+  envKey: "IGNAV_API_KEY",
+  async search(leg, apiKey) {
+    try {
+      const response = await fetch("https://ignav.com/api/fares/one-way", {
+        method: "POST",
+        headers: { "X-Api-Key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: leg.origin,
+          destination: leg.destination,
+          departure_date: leg.date,
+          adults: Math.min(9, Math.max(1, leg.passengers)),
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!response.ok) return null;
+
+      const payload = (await response.json()) as { itineraries?: IgnavItinerary[] };
+      const itineraries = Array.isArray(payload.itineraries) ? payload.itineraries : [];
+      if (itineraries.length === 0) return null;
+      liveSearchesThisInstance += 1;
+
+      return itineraries.slice(0, 6).map(itinerary => {
+        const outbound = itinerary.outbound ?? {};
+        const segments = Array.isArray(outbound.segments) ? outbound.segments : [];
+        const first = segments[0] ?? {};
+        const last = segments[segments.length - 1] ?? first;
+        return {
+          price: itinerary.price?.amount ?? 0,
+          currency: itinerary.price?.currency || "USD",
+          durationMinutes: outbound.duration_minutes ?? 0,
+          // Ignav returns every segment, so stops = segments - 1.
+          stops: Math.max(0, segments.length - 1),
+          airline: outbound.carrier || first.operating_carrier_name || "Airline",
+          airlineCode: (first.marketing_carrier_code || "").toUpperCase() || "FL",
+          departureTime: clockTime(first.departure_time_local),
+          arrivalTime: clockTime(last.arrival_time_local),
+          baggage: formatIgnavBags(itinerary.bags),
+        } satisfies RawFare;
+      });
+    } catch {
+      return null;
+    }
+  },
+};
+
+// Recurring pool first, one-time pool second. Cheap to extend: append another
+// supplier with an id, an env key and a parser.
+const LIVE_PROVIDERS: LiveProvider[] = [scrappaProvider, ignavProvider];
+
+function toOffer(fare: RawFare, leg: LiveLeg, providerId: string, index: number): FlightOffer {
+  return {
+    id: `live-${leg.origin}-${leg.destination}-${leg.date}-${index}`,
+    airline: fare.airline,
+    airlineCode: fare.airlineCode,
+    origin: leg.origin,
+    destination: leg.destination,
+    departureDate: leg.date,
+    departureTime: fare.departureTime,
+    arrivalTime: fare.arrivalTime,
+    duration: fare.durationMinutes > 0 ? formatDuration(fare.durationMinutes) : "—",
+    stops: fare.stops,
+    price: fare.price,
+    currency: fare.currency,
+    cabin: "Economy",
+    baggage: fare.baggage ?? "Baggage shown at booking",
+    bookingUrl: `https://www.google.com/travel/flights?q=${encodeURIComponent(`${leg.origin} to ${leg.destination}`)}`,
+    isBest: index === 0,
+    source: "Live fare",
+    provider: providerId,
+  };
 }
 
 /**
@@ -223,25 +338,76 @@ const liveLegCache = new Map<string, { expiresAt: number; offers: FlightOffer[] 
 const LIVE_LEG_TTL_MS = 5 * 60 * 1000;
 const LIVE_LEG_CACHE_MAX = 300;
 
-function liveLegKey(origin: string, destination: string, departureDate: string, passengers: number) {
-  return `${origin}|${destination}|${departureDate}|${passengers}`;
+function liveLegKey(provider: LiveProvider, leg: LiveLeg) {
+  // Supplier is part of the key: two suppliers' prices must never share a cache slot.
+  return `${provider.id}|${leg.origin}|${leg.destination}|${leg.date}|${leg.passengers}`;
 }
 
-async function getLiveLeg(origin: string, destination: string, departureDate: string, passengers: number): Promise<FlightOffer[] | null> {
-  const key = liveLegKey(origin, destination, departureDate, passengers);
+async function getLiveLeg(provider: LiveProvider, leg: LiveLeg): Promise<FlightOffer[] | null> {
+  const apiKey = process.env[provider.envKey];
+  if (!apiKey) return null;
+  if (liveSearchesThisInstance >= LIVE_SEARCH_CAP_PER_INSTANCE) return null;
+
+  const key = liveLegKey(provider, leg);
   const cached = liveLegCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.offers;
 
-  const offers = await fetchOneWayLiveFares(origin, destination, departureDate, passengers);
-  if (offers && offers.length > 0) {
-    // Serverless instances are long-lived but not infinite: evict rather than grow.
-    if (liveLegCache.size >= LIVE_LEG_CACHE_MAX) {
-      const oldest = liveLegCache.keys().next().value;
-      if (oldest !== undefined) liveLegCache.delete(oldest);
-    }
-    liveLegCache.set(key, { expiresAt: Date.now() + LIVE_LEG_TTL_MS, offers });
+  const fares = await provider.search(leg, apiKey);
+  if (!fares || fares.length === 0) return null;
+
+  const offers = fares.map((fare, index) => toOffer(fare, leg, provider.id, index)).filter(offer => offer.price > 0);
+  if (offers.length === 0) return null;
+
+  // Serverless instances are long-lived but not infinite: evict rather than grow.
+  if (liveLegCache.size >= LIVE_LEG_CACHE_MAX) {
+    const oldest = liveLegCache.keys().next().value;
+    if (oldest !== undefined) liveLegCache.delete(oldest);
   }
+  liveLegCache.set(key, { expiresAt: Date.now() + LIVE_LEG_TTL_MS, offers });
   return offers;
+}
+
+/**
+ * Walk the supplier chain. Each supplier is tried for the WHOLE search; a supplier
+ * that cannot price both legs is abandoned for the next one, so a single total is
+ * never stitched from two sources. Returns null when every configured supplier is
+ * unavailable - the caller then serves the honestly-labelled sample path, and the
+ * customer still gets an answer instead of an error.
+ */
+async function searchLiveFares(input: {
+  origin: string;
+  destination: string;
+  departureDate: string;
+  returnDate?: string;
+  passengers: number;
+  tripType?: "roundTrip" | "oneWay";
+}): Promise<FlightOffer[] | null> {
+  const outboundLeg: LiveLeg = { origin: input.origin, destination: input.destination, date: input.departureDate, passengers: input.passengers };
+  const returnLeg: LiveLeg = { origin: input.destination, destination: input.origin, date: input.returnDate ?? "", passengers: input.passengers };
+  const wantsReturn = input.tripType !== "oneWay" && Boolean(input.returnDate);
+
+  for (const provider of LIVE_PROVIDERS) {
+    if (liveSearchesThisInstance >= LIVE_SEARCH_CAP_PER_INSTANCE) break;
+
+    const outbound = await getLiveLeg(provider, outboundLeg);
+    if (!outbound) continue; // no key, no credits, outage, or empty - try next supplier
+
+    let offers = outbound;
+    if (wantsReturn) {
+      const back = await getLiveLeg(provider, returnLeg);
+      if (!back) continue; // never mix suppliers: restart the whole search elsewhere
+      offers = offers.map((out, index) => {
+        const leg = back[index % back.length];
+        return { ...out, price: out.price + leg.price, returnPrice: leg.price };
+      });
+    }
+
+    // Always sort ourselves: the cheapest must be flagged regardless of the order
+    // (or claimed sort order) the supplier returned.
+    return [...offers].sort((a, b) => a.price - b.price).map((offer, index) => ({ ...offer, isBest: index === 0 }));
+  }
+
+  return null;
 }
 
 export async function searchFlights(input: { origin: string; destination: string; departureDate: string; returnDate?: string; passengers: number; tripType?: "roundTrip" | "oneWay" }) {
@@ -251,35 +417,13 @@ export async function searchFlights(input: { origin: string; destination: string
   const cached = cachedResults.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return { offers: cached.offers, cached: true, source: cached.source };
 
-  // Live fares first. If the provider cannot answer, we fall through to the
-  // sample/estimate path, which is labelled honestly in the UI.
-  const liveOutbound = await getLiveLeg(origin, destination, input.departureDate, input.passengers);
-  if (liveOutbound && liveOutbound.length > 0) {
-    let liveOffers = liveOutbound;
-    let usable = true;
-    if (input.tripType !== "oneWay" && input.returnDate) {
-      const liveReturn = await getLiveLeg(destination, origin, input.returnDate, input.passengers);
-      if (liveReturn && liveReturn.length > 0) {
-        liveOffers = liveOffers
-          .map((outbound, index) => {
-            const back = liveReturn[index % liveReturn.length];
-            return { ...outbound, price: outbound.price + back.price, returnPrice: back.price };
-          })
-          .sort((a, b) => a.price - b.price)
-          .map((offer, index) => ({ ...offer, isBest: index === 0 }));
-      } else {
-        // Cannot price the return leg: better to show a labelled sample than a
-        // one-way total passed off as a round-trip price.
-        usable = false;
-      }
-    }
-    // Always sort ourselves: the cheapest must be flagged, regardless of what
-    // order the provider returned (or claimed to sort) them in.
-    liveOffers = [...liveOffers].sort((a, b) => a.price - b.price).map((offer, index) => ({ ...offer, isBest: index === 0 }));
-    if (usable) {
-      cachedResults.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, offers: liveOffers, source: "live" });
-      return { offers: liveOffers, cached: false, source: "live" as const };
-    }
+  // Live fares first: walk the supplier chain. If none can answer we fall through to
+  // the sample/estimate path, which is labelled honestly in the UI - a customer
+  // always gets an answer, never an error and never a fake "live" price.
+  const liveOffers = await searchLiveFares({ ...input, origin, destination });
+  if (liveOffers && liveOffers.length > 0) {
+    cachedResults.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, offers: liveOffers, source: "live" });
+    return { offers: liveOffers, cached: false, source: "live" as const };
   }
 
   const matching = seedOffers.filter(offer => offer.origin === origin && offer.destination === destination);

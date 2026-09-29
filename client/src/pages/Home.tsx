@@ -302,7 +302,7 @@ export default function Home() {
     } catch { /* storage unavailable */ }
   }, []);
   useEffect(() => { try { localStorage.setItem("fareloop.sortMode", sortMode); } catch { /* ignore */ } }, [sortMode]);
-  const searchMutation = trpc.flights.search.useMutation({ onSuccess: data => toast.success(`${data.offers.length} fares found`, { description: `${data.cached ? "From five-minute cache - " : ""}${data.source === "live" ? "Live fares - real quotes fetched from Google Flights just now" : data.source === "estimate" ? "Estimates - demo math, no live airline quotes yet" : "Sample fares - demo data, no live airline quotes yet"}` }), onError: () => { searchMutation.reset(); toast.error("Search failed - showing sample fares"); } });
+  const searchMutation = trpc.flights.search.useMutation({ onSuccess: data => toast.success(`${data.offers.length} fares found`, { description: `${data.cached ? "From five-minute cache - " : ""}${data.source === "live" ? `Live fares from ${data.offers[0]?.provider ?? "our fare supplier"} - real quotes, fetched just now` : data.source === "estimate" ? "Estimates - demo math, no live airline quotes yet" : "Sample fares - demo data, no live airline quotes yet"}` }), onError: () => { searchMutation.reset(); toast.error("Search failed - showing sample fares"); } });
   const trackerQuery = trpc.tracker.list.useQuery();
   const addRoute = trpc.tracker.add.useMutation({ onSuccess: () => { trackerQuery.refetch(); toast.success("Route added to your tracker", { description: "We’ll keep watching for a better fare." }); }, onError: error => {
     // The gate lives on the server - if PayPal said no, send them to the paywall
