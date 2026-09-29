@@ -8,7 +8,7 @@ import { sdk } from "./_core/sdk";
  *  CRON_SECRET. Fails closed: with no secret configured the route is locked rather
  *  than left open for anyone on the internet to trigger notifications. Vercel Cron
  *  sends `Authorization: Bearer ${CRON_SECRET}` automatically when the env var exists. */
-function authorizedCron(req: Request): boolean {
+export function authorizedCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   const header = (req.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();

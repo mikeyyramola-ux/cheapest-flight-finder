@@ -11,6 +11,7 @@ import { serveStatic } from "./render";
 import { handleStripeWebhook } from "../stripe";
 import { handlePayPalWebhook } from "../paypal";
 import { monitorPartnersHandler, scanFlightDealsHandler } from "../scheduled";
+import { opsQuotasHandler } from "../ops";
 import { DESTINATION_PATHS } from "@shared/destinations";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -41,7 +42,7 @@ export async function createApp(): Promise<{ app: Express; server: Server }> {
   const app = express();
   const server = createServer(app);
   const canonicalOrigin = (process.env.CANONICAL_ORIGIN || "https://cheapflights-lx7n3n4y.manus.space").replace(/\/$/, "");
-  app.get("/robots.txt", (_req, res) => res.type("text").send(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${canonicalOrigin}/sitemap.xml\n`));
+  app.get("/robots.txt", (_req, res) => res.type("text").send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /ops\nSitemap: ${canonicalOrigin}/sitemap.xml\n`));
   // IndexNow key endpoint (env-gated): host {INDEXNOW_KEY}.txt at the site root,
   // then submit URLs via https://api.indexnow.org/indexnow — see docs-seo-growth.md.
   const indexNowKey = process.env.INDEXNOW_KEY?.trim();
@@ -67,6 +68,9 @@ export async function createApp(): Promise<{ app: Express; server: Server }> {
   });
   app.post("/api/scheduled/scan-flight-deals", scanFlightDealsHandler);
   app.post("/api/scheduled/monitor-partners", monitorPartnersHandler);
+  // Owner-only quota board. Registered before the body parser and the SPA fallback so
+  // it is answered as an API route and never as a rendered page.
+  app.get("/api/ops/quotas", opsQuotasHandler);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

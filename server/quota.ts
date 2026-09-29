@@ -125,7 +125,7 @@ const memoryUsed = new Map<string, number>();
  */
 const QUOTA_DB_TIMEOUT_MS = 4_000;
 
-async function bounded<T>(work: () => Promise<T>): Promise<T | null> {
+export async function bounded<T>(work: () => Promise<T>): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Rejections are absorbed here rather than left on the raced promise: after a
   // timeout wins the race, a later rejection would otherwise surface as an

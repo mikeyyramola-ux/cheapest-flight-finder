@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/react";
 import DestinationPage, { DestinationHub } from "@/pages/Destination";
 import FAQ from "@/pages/FAQ";
 import NotFound from "@/pages/NotFound";
+import Ops from "@/pages/Ops";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import PageTransition from "./components/PageTransition";
@@ -13,7 +14,7 @@ import Home from "./pages/Home";
 function Router() {
   return (
     <PageTransition>
-      <Switch><Route path="/" component={Home} /><Route path="/tracker" component={Home} /><Route path="/paywall" component={Home} /><Route path="/faq" component={FAQ} /><Route path="/flights-to" component={DestinationHub} /><Route path="/flights-to/:slug" component={DestinationPage} /><Route path="/404" component={NotFound} /><Route component={NotFound} /></Switch>
+      <Switch><Route path="/" component={Home} /><Route path="/tracker" component={Home} /><Route path="/paywall" component={Home} /><Route path="/faq" component={FAQ} /><Route path="/flights-to" component={DestinationHub} /><Route path="/flights-to/:slug" component={DestinationPage} /><Route path="/ops" component={Ops} /><Route path="/404" component={NotFound} /><Route component={NotFound} /></Switch>
     </PageTransition>
   );
 }

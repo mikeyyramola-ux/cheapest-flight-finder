@@ -48,6 +48,15 @@ const ROUTE_META: Record<string, HeadMeta> = {
     description: `Fare guides for ${DESTINATIONS.length} major cities: when to fly, which airport to use, and how to watch the price trend before you book.`,
     canonicalPath: "/flights-to",
   },
+  // Deliberately not in the sitemap and marked noindex: this is the operator's quota
+  // board, not a page for visitors. It is listed here so the route answers 200 instead
+  // of falling through to the not-found head with a 404 status behind working content.
+  "/ops": {
+    title: "Quota analytics | Fareloop",
+    description: "Internal view of the allowances Fareloop depends on.",
+    canonicalPath: "/ops",
+    noindex: true,
+  },
 };
 
 /** Unique per-city head meta for /flights-to/:slug destination pages. */
