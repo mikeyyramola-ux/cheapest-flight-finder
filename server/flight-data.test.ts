@@ -68,6 +68,53 @@ describe("honesty guarantees", () => {
     expect(result.delivered).toBe(false);
     expect(result.reason).toMatch(/not implemented/i);
   });
+
+  // Credentials now exist in production, so the promise this type makes is a live one
+  // rather than a branch nothing can reach. Two sides of it, both against a mocked
+  // Telegram: presence of a token must never be mistaken for delivery, and acceptance
+  // must be reported for exactly what was accepted.
+  it("reports a configured bot that Telegram rejects as undelivered", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "configured-but-rejected");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "8063753263");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ ok: false, description: "chat not found" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await sendPriceDropNotification(listTrackedRoutes()[0]!, 22);
+      expect(result.delivered).toBe(false);
+      expect(result.reason).toMatch(/403/);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("claims success only for a message Telegram itself accepted, to our own chat", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "configured");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "8063753263");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, result: { message_id: 42 } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await sendPriceDropNotification(listTrackedRoutes()[0]!, 22);
+      expect(result.delivered).toBe(true);
+      expect(result.reason).toMatch(/accepted by Telegram/i);
+      const init = fetchMock.mock.calls[0]?.[1] as { body: string };
+      const sent = JSON.parse(init.body) as { chat_id: string; text: string };
+      expect(sent.chat_id).toBe("8063753263");
+      expect(sent.text).toContain("Price drop");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe("premium checkout", () => {
