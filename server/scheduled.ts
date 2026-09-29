@@ -56,6 +56,10 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       // this is below routesChecked the prices were NOT all refreshed from live data.
       routesLivePriced: result.liveRefreshed,
       suppliersUsed: result.liveProviders,
+      // Which suppliers answered, by name. `suppliersUsed` is only a count, so it
+      // cannot show the monthly-refilling pool being quietly replaced by the one-time
+      // pool - which is a capacity change, not a healthy run.
+      suppliers: result.suppliers,
       // The asset: durable, supplier-tagged readings this run actually added.
       historyPointsStored: result.observationsStored,
       // Whether the routes priced here were the customer's saved ones or, on a cold

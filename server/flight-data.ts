@@ -720,6 +720,10 @@ export async function scanTrackedRoutes() {
   let liveRefreshed = 0;
   let liveProviders = 0;
   let observationsStored = 0;
+  // Which suppliers actually served this run. A count alone hides drift: if the
+  // monthly-refilling pool stops answering and the one-time pool takes over, "4
+  // suppliers" looks identical to a healthy run while capacity quietly drains.
+  const suppliersServed = new Set<string>();
 
   // Refresh against live fares BEFORE deciding anything. The previous version compared
   // currentPrice against the target without ever asking a supplier, so every "price
@@ -743,6 +747,7 @@ export async function scanTrackedRoutes() {
 
     liveRefreshed += 1;
     if (liveOffer.provider) liveProviders += 1;
+    if (liveOffer.provider) suppliersServed.add(liveOffer.provider);
     trackedRoutes.set(route.id, { ...route, currentPrice: liveOffer.price, lastChecked: "just now" });
     const checkedAt = new Date();
     lastCheckedAtById.set(route.id, checkedAt);
@@ -795,7 +800,7 @@ export async function scanTrackedRoutes() {
   // liveRefreshed is reported so a caller can never claim "all routes checked" when
   // only some of them were actually priced by a supplier. observationsStored says the
   // same for the history table - an attempt and a stored row are not the same thing.
-  return { checkedAt: new Date().toISOString(), routesTotal: routes.length, liveRefreshed, liveProviders, observationsStored, hydrated, alerts };
+  return { checkedAt: new Date().toISOString(), routesTotal: routes.length, liveRefreshed, liveProviders, suppliers: Array.from(suppliersServed), observationsStored, hydrated, alerts };
 }
 
 export interface NotificationResult {
