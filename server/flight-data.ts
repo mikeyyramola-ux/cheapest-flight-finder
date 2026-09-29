@@ -182,6 +182,20 @@ const chargeLiveSearch = (purpose: LivePurpose) => {
   liveChargedThisInstance[purpose] += 1;
 };
 
+/**
+ * Budget state, exposed so the cron can escalate when the alert pool runs dry instead
+ * of degrading quietly. Escalation E3: a silent budget is a missed alert discovered by
+ * a customer rather than by us.
+ */
+export type LiveBudgetSnapshot = Record<LivePurpose, { used: number; limit: number; exhausted: boolean }>;
+
+export function liveBudgetStatus(): LiveBudgetSnapshot {
+  return {
+    search: { used: liveChargedThisInstance.search, limit: LIVE_BUDGET_PER_INSTANCE.search, exhausted: liveBudgetExhausted("search") },
+    alert: { used: liveChargedThisInstance.alert, limit: LIVE_BUDGET_PER_INSTANCE.alert, exhausted: liveBudgetExhausted("alert") },
+  };
+}
+
 type ScrappaLeg = {
   airline?: string;
   flight_number?: string;

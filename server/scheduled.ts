@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { scanTrackedRoutes, sendPriceDropNotification } from "./flight-data";
+import { liveBudgetStatus, scanTrackedRoutes, sendPriceDropNotification } from "./flight-data";
 import { checkPartnerEndpoints } from "./partner-health";
 import { sdk } from "./_core/sdk";
 
@@ -23,6 +23,23 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     const result = await scanTrackedRoutes();
     const notifications = await Promise.all(result.alerts.filter(item => item.notified).map(item => sendPriceDropNotification(item.route, item.dropPercent)));
     const delivered = notifications.filter(item => item.delivered).length;
+
+    // ESCALATION TRIGGERS (E3/E5/E6 in LEARNING_NOTES). These are emitted as data, not
+    // logged and forgotten: an `owner` entry means stop and intervene. A run that
+    // quietly refreshes only half its routes, or generates alerts nobody receives,
+    // must never be able to look like a healthy run.
+    const budget = liveBudgetStatus();
+    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6"; detail: string }> = [];
+    if (budget.alert.exhausted) {
+      escalations.push({ level: "owner", code: "E3", detail: `alert credit pool exhausted (used ${budget.alert.used}/${budget.alert.limit}); free searches may be starving subscriber alerts` });
+    }
+    if (result.liveRefreshed < result.routesTotal) {
+      escalations.push({ level: "owner", code: "E5", detail: `only ${result.liveRefreshed}/${result.routesTotal} routes priced live; remaining decisions would run on stale prices` });
+    }
+    if (notifications.length > delivered) {
+      escalations.push({ level: "owner", code: "E6", detail: `${notifications.length - delivered} of ${notifications.length} alerts generated but not delivered` });
+    }
+
     return res.json({
       ok: true,
       checkedAt: result.checkedAt,
@@ -34,6 +51,7 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       notificationsAttempted: notifications.length,
       // Reported honestly - attempted vs actually delivered are not the same number.
       notificationsDelivered: delivered,
+      escalations,
       failures: notifications.filter(item => !item.delivered).map(item => ({ channel: item.channel, reason: item.reason })),
     });
   } catch (error) {
