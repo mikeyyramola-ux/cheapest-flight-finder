@@ -20,13 +20,17 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     return res.status(403).json({ error: "cron-secret-required" });
   }
   try {
-    const result = scanTrackedRoutes();
+    const result = await scanTrackedRoutes();
     const notifications = await Promise.all(result.alerts.filter(item => item.notified).map(item => sendPriceDropNotification(item.route, item.dropPercent)));
     const delivered = notifications.filter(item => item.delivered).length;
     return res.json({
       ok: true,
       checkedAt: result.checkedAt,
       routesChecked: result.alerts.length,
+      // Reported honestly: how many routes a supplier actually priced this run. When
+      // this is below routesChecked the prices were NOT all refreshed from live data.
+      routesLivePriced: result.liveRefreshed,
+      suppliersUsed: result.liveProviders,
       notificationsAttempted: notifications.length,
       // Reported honestly - attempted vs actually delivered are not the same number.
       notificationsDelivered: delivered,

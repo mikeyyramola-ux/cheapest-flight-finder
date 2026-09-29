@@ -159,10 +159,28 @@ type LiveProvider = {
 
 // Safety net so a burst of searches cannot exhaust every free allowance in one
 // sitting. Counts only successful, non-empty responses (those are what get billed).
-// Per-instance and therefore best-effort - serverless memory is not shared - with
-// the caches below doing most of the work.
-const LIVE_SEARCH_CAP_PER_INSTANCE = 60;
-let liveSearchesThisInstance = 0;
+//
+// Two separate pools, not one: public search may only ever spend its own budget, so
+// a busy day of anonymous searches can never starve the tracked-route refreshes that
+// paying subscribers are waiting on. Without this split the two compete for the same
+// counter and the free traffic always wins, because there is far more of it.
+//
+// Per-instance and therefore best-effort - serverless memory is not shared - with the
+// caches below doing most of the work. A true month-wide total needs the database.
+type LivePurpose = "search" | "alert";
+
+const LIVE_BUDGET_PER_INSTANCE: Record<LivePurpose, number> = {
+  search: 40,
+  alert: 20,
+};
+
+const liveChargedThisInstance: Record<LivePurpose, number> = { search: 0, alert: 0 };
+
+const liveBudgetExhausted = (purpose: LivePurpose) => liveChargedThisInstance[purpose] >= LIVE_BUDGET_PER_INSTANCE[purpose];
+
+const chargeLiveSearch = (purpose: LivePurpose) => {
+  liveChargedThisInstance[purpose] += 1;
+};
 
 type ScrappaLeg = {
   airline?: string;
@@ -204,7 +222,6 @@ const scrappaProvider: LiveProvider = {
       const payload = (await response.json()) as { flights?: ScrappaFlight[] };
       const flights = Array.isArray(payload.flights) ? payload.flights : [];
       if (flights.length === 0) return null;
-      liveSearchesThisInstance += 1;
 
       return flights.slice(0, 6).map(flight => {
         const segments = Array.isArray(flight.legs) ? flight.legs : [];
@@ -274,7 +291,6 @@ const ignavProvider: LiveProvider = {
       const payload = (await response.json()) as { itineraries?: IgnavItinerary[] };
       const itineraries = Array.isArray(payload.itineraries) ? payload.itineraries : [];
       if (itineraries.length === 0) return null;
-      liveSearchesThisInstance += 1;
 
       return itineraries.slice(0, 6).map(itinerary => {
         const outbound = itinerary.outbound ?? {};
@@ -343,17 +359,21 @@ function liveLegKey(provider: LiveProvider, leg: LiveLeg) {
   return `${provider.id}|${leg.origin}|${leg.destination}|${leg.date}|${leg.passengers}`;
 }
 
-async function getLiveLeg(provider: LiveProvider, leg: LiveLeg): Promise<FlightOffer[] | null> {
+async function getLiveLeg(provider: LiveProvider, leg: LiveLeg, purpose: LivePurpose): Promise<FlightOffer[] | null> {
   const apiKey = process.env[provider.envKey];
   if (!apiKey) return null;
-  if (liveSearchesThisInstance >= LIVE_SEARCH_CAP_PER_INSTANCE) return null;
 
   const key = liveLegKey(provider, leg);
   const cached = liveLegCache.get(key);
+  // Cache hits are checked before the budget on purpose: a cached leg costs no
+  // credit, so refusing it would throw away a free answer to save money we never spent.
   if (cached && cached.expiresAt > Date.now()) return cached.offers;
+
+  if (liveBudgetExhausted(purpose)) return null;
 
   const fares = await provider.search(leg, apiKey);
   if (!fares || fares.length === 0) return null;
+  chargeLiveSearch(purpose);
 
   const offers = fares.map((fare, index) => toOffer(fare, leg, provider.id, index)).filter(offer => offer.price > 0);
   if (offers.length === 0) return null;
@@ -381,20 +401,24 @@ async function searchLiveFares(input: {
   returnDate?: string;
   passengers: number;
   tripType?: "roundTrip" | "oneWay";
+  /** Which pool this search is allowed to spend. Defaults to "search"; the
+   *  tracked-route scanner passes "alert" so its budget stays ring-fenced. */
+  purpose?: LivePurpose;
 }): Promise<FlightOffer[] | null> {
   const outboundLeg: LiveLeg = { origin: input.origin, destination: input.destination, date: input.departureDate, passengers: input.passengers };
   const returnLeg: LiveLeg = { origin: input.destination, destination: input.origin, date: input.returnDate ?? "", passengers: input.passengers };
   const wantsReturn = input.tripType !== "oneWay" && Boolean(input.returnDate);
+  const purpose: LivePurpose = input.purpose ?? "search";
 
   for (const provider of LIVE_PROVIDERS) {
-    if (liveSearchesThisInstance >= LIVE_SEARCH_CAP_PER_INSTANCE) break;
+    if (liveBudgetExhausted(purpose)) break;
 
-    const outbound = await getLiveLeg(provider, outboundLeg);
+    const outbound = await getLiveLeg(provider, outboundLeg, purpose);
     if (!outbound) continue; // no key, no credits, outage, or empty - try next supplier
 
     let offers = outbound;
     if (wantsReturn) {
-      const back = await getLiveLeg(provider, returnLeg);
+      const back = await getLiveLeg(provider, returnLeg, purpose);
       if (!back) continue; // never mix suppliers: restart the whole search elsewhere
       offers = offers.map((out, index) => {
         const leg = back[index % back.length];
@@ -410,7 +434,10 @@ async function searchLiveFares(input: {
   return null;
 }
 
-export async function searchFlights(input: { origin: string; destination: string; departureDate: string; returnDate?: string; passengers: number; tripType?: "roundTrip" | "oneWay" }) {
+export async function searchFlights(
+  input: { origin: string; destination: string; departureDate: string; returnDate?: string; passengers: number; tripType?: "roundTrip" | "oneWay" },
+  purpose: LivePurpose = "search",
+) {
   const origin = input.origin.toUpperCase();
   const destination = input.destination.toUpperCase();
   const cacheKey = JSON.stringify({ ...input, origin, destination });
@@ -420,7 +447,7 @@ export async function searchFlights(input: { origin: string; destination: string
   // Live fares first: walk the supplier chain. If none can answer we fall through to
   // the sample/estimate path, which is labelled honestly in the UI - a customer
   // always gets an answer, never an error and never a fake "live" price.
-  const liveOffers = await searchLiveFares({ ...input, origin, destination });
+  const liveOffers = await searchLiveFares({ ...input, origin, destination, purpose });
   if (liveOffers && liveOffers.length > 0) {
     cachedResults.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, offers: liveOffers, source: "live" });
     return { offers: liveOffers, cached: false, source: "live" as const };
@@ -482,15 +509,46 @@ export function removeTrackedRoute(id: string) {
   return trackedRoutes.delete(id);
 }
 
-export function scanTrackedRoutes() {
+export async function scanTrackedRoutes() {
+  const routes = listTrackedRoutes();
+  let liveRefreshed = 0;
+  let liveProviders = 0;
+
+  // Refresh against live fares BEFORE deciding anything. The previous version compared
+  // currentPrice against the target without ever asking a supplier, so every "price
+  // drop" was really a comparison against the seed value the route was created with.
+  // A route that cannot be priced live keeps its existing price rather than being
+  // quietly back-filled with sample data.
+  for (const route of routes) {
+    const result = await searchFlights(
+      {
+        origin: route.origin,
+        destination: route.destination,
+        departureDate: route.departDate,
+        returnDate: route.returnDate || undefined,
+        passengers: 1,
+        tripType: route.returnDate ? "roundTrip" : "oneWay",
+      },
+      "alert",
+    );
+    const liveOffer = result.source === "live" ? result.offers[0] : undefined;
+    if (!liveOffer || liveOffer.price <= 0) continue;
+
+    liveRefreshed += 1;
+    if (liveOffer.provider) liveProviders += 1;
+    trackedRoutes.set(route.id, { ...route, currentPrice: liveOffer.price, lastChecked: "just now" });
+  }
+
   const alerts = listTrackedRoutes().map(route => {
     const dropPercent = Math.round((1 - route.currentPrice / route.historicalAverage) * 100);
     const isAlert = route.currentPrice <= route.targetPrice || dropPercent >= 15;
-    const updated = { ...route, status: isAlert ? "alert" as const : "watching" as const, lastChecked: "just now" };
+    const updated = { ...route, status: isAlert ? "alert" as const : "watching" as const, lastChecked: route.lastChecked };
     trackedRoutes.set(route.id, updated);
     return { route: updated, dropPercent, notified: isAlert };
   });
-  return { checkedAt: new Date().toISOString(), alerts };
+  // liveRefreshed is reported so a caller can never claim "all routes checked" when
+  // only some of them were actually priced by a supplier.
+  return { checkedAt: new Date().toISOString(), routesTotal: routes.length, liveRefreshed, liveProviders, alerts };
 }
 
 export interface NotificationResult {

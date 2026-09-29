@@ -80,7 +80,7 @@ export const appRouter = router({
       }),
     remove: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => ({ success: removeTrackedRoute(input.id) })),
     scan: publicProcedure.mutation(async () => {
-      const result = scanTrackedRoutes();
+      const result = await scanTrackedRoutes();
       const notifications = await Promise.all(result.alerts.filter(item => item.notified).map(item => sendPriceDropNotification(item.route, item.dropPercent)));
       return { ...result, notifications };
     }),

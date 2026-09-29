@@ -26,10 +26,10 @@ describe("flight data engine", () => {
     expect(second.offers.length).toBeGreaterThan(0);
   });
 
-  it("flags tracked routes at or below the target / 15% drop threshold", () => {
+  it("flags tracked routes at or below the target / 15% drop threshold", async () => {
     const average = getHistoricalAverage("JFK", "LHR");
     expect(average).toBeGreaterThan(0);
-    const result = scanTrackedRoutes();
+    const result = await scanTrackedRoutes();
     expect(result.alerts.length).toBe(listTrackedRoutes().length);
     expect(result.alerts.some(item => item.notified)).toBe(true);
   });
