@@ -20,6 +20,9 @@ export type FlightOffer = {
   returnPrice?: number;
   layoverCountry?: string;
   source: "Seed data" | "Estimate" | "Live fare";
+  /** Which supplier produced this fare. Only set for "Live fare". Kept so that if we
+   *  ever rotate between suppliers, no chart or history can silently blend two of them. */
+  provider?: string;
 };
 
 export type TrackedRoute = {
@@ -119,6 +122,9 @@ export function getHistoricalAverage(origin: string, destination: string) {
  * such. We never invent a price and present it as live.
  */
 const LIVE_FARES_URL = "https://scrappa.co/api/flights/one-way";
+// Recorded on every live offer so a supplier change can never be mistaken for a
+// genuine price movement (see FlightOffer.provider).
+const LIVE_PROVIDER = "Google Flights";
 // Safety net so a burst of searches cannot exhaust the monthly free allowance in
 // one sitting. Best-effort and per-instance (serverless memory is not shared),
 // with the 5-minute cache doing most of the work.
@@ -151,7 +157,6 @@ async function fetchOneWayLiveFares(origin: string, destination: string, departu
   const apiKey = process.env.SCRAPPA_API_KEY;
   if (!apiKey) return null;
   if (liveSearchesThisInstance >= LIVE_SEARCH_CAP_PER_INSTANCE) return null;
-  liveSearchesThisInstance += 1;
 
   try {
     const url = new URL(LIVE_FARES_URL);
@@ -167,6 +172,10 @@ async function fetchOneWayLiveFares(origin: string, destination: string, departu
     const payload = (await response.json()) as { flights?: ScrappaFlight[] };
     const flights = Array.isArray(payload.flights) ? payload.flights : [];
     if (flights.length === 0) return null;
+
+    // Count only a response we actually consumed. The provider bills on HTTP 200,
+    // so a failing or empty upstream never eats the daily safety cap.
+    liveSearchesThisInstance += 1;
 
     return flights
       .slice(0, 6)
@@ -194,12 +203,45 @@ async function fetchOneWayLiveFares(origin: string, destination: string, departu
           bookingUrl: `https://www.google.com/travel/flights?q=${encodeURIComponent(`${origin} to ${destination}`)}`,
           isBest: index === 0,
           source: "Live fare" as const,
+          provider: LIVE_PROVIDER,
         } satisfies FlightOffer;
       })
       .filter(offer => offer.price > 0);
   } catch {
     return null;
   }
+}
+
+/**
+ * Per-leg cache. A round trip costs two credits (outbound + return), but users
+ * routinely hold the outbound fixed and only change the return date - caching each
+ * leg independently makes those edits free instead of re-billing the whole search.
+ * Failures are deliberately not cached: a transient error must stay retryable, and
+ * a failed request costs no credit anyway.
+ */
+const liveLegCache = new Map<string, { expiresAt: number; offers: FlightOffer[] }>();
+const LIVE_LEG_TTL_MS = 5 * 60 * 1000;
+const LIVE_LEG_CACHE_MAX = 300;
+
+function liveLegKey(origin: string, destination: string, departureDate: string, passengers: number) {
+  return `${origin}|${destination}|${departureDate}|${passengers}`;
+}
+
+async function getLiveLeg(origin: string, destination: string, departureDate: string, passengers: number): Promise<FlightOffer[] | null> {
+  const key = liveLegKey(origin, destination, departureDate, passengers);
+  const cached = liveLegCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.offers;
+
+  const offers = await fetchOneWayLiveFares(origin, destination, departureDate, passengers);
+  if (offers && offers.length > 0) {
+    // Serverless instances are long-lived but not infinite: evict rather than grow.
+    if (liveLegCache.size >= LIVE_LEG_CACHE_MAX) {
+      const oldest = liveLegCache.keys().next().value;
+      if (oldest !== undefined) liveLegCache.delete(oldest);
+    }
+    liveLegCache.set(key, { expiresAt: Date.now() + LIVE_LEG_TTL_MS, offers });
+  }
+  return offers;
 }
 
 export async function searchFlights(input: { origin: string; destination: string; departureDate: string; returnDate?: string; passengers: number; tripType?: "roundTrip" | "oneWay" }) {
@@ -211,12 +253,12 @@ export async function searchFlights(input: { origin: string; destination: string
 
   // Live fares first. If the provider cannot answer, we fall through to the
   // sample/estimate path, which is labelled honestly in the UI.
-  const liveOutbound = await fetchOneWayLiveFares(origin, destination, input.departureDate, input.passengers);
+  const liveOutbound = await getLiveLeg(origin, destination, input.departureDate, input.passengers);
   if (liveOutbound && liveOutbound.length > 0) {
     let liveOffers = liveOutbound;
     let usable = true;
     if (input.tripType !== "oneWay" && input.returnDate) {
-      const liveReturn = await fetchOneWayLiveFares(destination, origin, input.returnDate, input.passengers);
+      const liveReturn = await getLiveLeg(destination, origin, input.returnDate, input.passengers);
       if (liveReturn && liveReturn.length > 0) {
         liveOffers = liveOffers
           .map((outbound, index) => {

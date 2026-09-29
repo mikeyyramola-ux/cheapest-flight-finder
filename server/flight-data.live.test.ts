@@ -68,6 +68,9 @@ describe("live fare source", () => {
     expect(result.source).toBe("live");
     expect(result.offers.length).toBeGreaterThan(0);
     expect(result.offers.every(offer => offer.source === "Live fare")).toBe(true);
+    // Every live fare must name its supplier, so a future supplier swap can never
+    // be misread as a price movement.
+    expect(result.offers.every(offer => offer.provider === "Google Flights")).toBe(true);
     expect(result.offers[0].price).toBeLessThanOrEqual(result.offers[1].price);
     expect(result.offers[0].isBest).toBe(true);
     expect(result.offers[0].departureTime).toBe("19:01");
@@ -119,5 +122,34 @@ describe("live fare source", () => {
       });
       expect(result.source).not.toBe("live");
     }
+  });
+
+  it("caches each leg, so changing only the return date costs one call not two", async () => {
+    vi.stubEnv("SCRAPPA_API_KEY", KEY);
+    const fetchMock = vi.fn(async () => providerReply([{
+      price: 300,
+      currency: "USD",
+      total_duration_minutes: 480,
+      stops: 0,
+      airline_name: "Cache Air",
+      legs: [{ airline: "CA", departure_time: "2026-11-04T09:00:00", arrival_time: "2026-11-04T21:00:00" }],
+    }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const base = { origin: "LAX", destination: "AMS", departureDate: "2026-11-04", passengers: 1, tripType: "roundTrip" as const };
+
+    const first = await searchFlights({ ...base, returnDate: "2026-11-11" });
+    expect(first.source).toBe("live");
+    expect(fetchMock).toHaveBeenCalledTimes(2); // outbound + return
+
+    const repeat = await searchFlights({ ...base, returnDate: "2026-11-11" });
+    expect(repeat.cached).toBe(true);
+    expect(repeat.source).toBe("live");
+    expect(fetchMock).toHaveBeenCalledTimes(2); // whole result cached
+
+    const laterReturn = await searchFlights({ ...base, returnDate: "2026-11-18" });
+    expect(laterReturn.source).toBe("live");
+    expect(fetchMock).toHaveBeenCalledTimes(3); // outbound reused, only the new leg billed
+    expect(laterReturn.offers[0].provider).toBe("Google Flights");
   });
 });
