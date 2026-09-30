@@ -25,6 +25,10 @@ import { deliverTelegram } from "./telegram";
  *  - E16  the check itself could not run (the board could not be read). Reported as
  *         failure, never as silence - E16's own rule: the wire must fail into
  *         failure, never into green.
+ *  - E19  the cron's own heartbeat (cron:last-run) went stale: at least one daily
+ *         12:00 UTC run was missed. The heartbeat is stamped by every successful
+ *         run, and the NEXT run is what can notice a gap - this code is how a missed
+ *         run gets reported instead of silently missing twice.
  *
  * Three rules this file exists to keep:
  *
@@ -61,11 +65,22 @@ export const ALERT_REMIND_MS = 7 * 24 * 60 * 60 * 1000;
  *  mistaken for a quota metric (the board only ever reads its own metric keys). */
 export const QUOTA_ALERT_STATE_PREFIX = "alert:";
 
+/** Every successful cron run stamps this row into board_observations (scheduled.ts
+ *  writes it at the end of the run). It is the cron's own proof of life: a row older
+ *  than CRON_HEARTBEAT_STALE_MS is a missed run, reported as E19 by the next run.
+ *  Not a quota metric - the board only ever reads its own metric keys. */
+export const CRON_HEARTBEAT_KEY = "cron:last-run";
+
+/** A heartbeat past this age means at least one 12:00 UTC run did not happen. The
+ *  schedule is daily with Vercel's flexible 1-hour window, so 25 h clears the window
+ *  plus a full day of margin before a miss is declared. */
+export const CRON_HEARTBEAT_STALE_MS = 25 * 60 * 60 * 1000;
+
 /** Stored detail for a condition that is no longer firing - the marker that lets a
  *  recurrence be treated as news instead of as an unchanged repeat. */
 export const ALERT_CLEAR_MARK = "clear";
 
-export const OWNER_ALERT_CODES = ["E14", "E16", "E17", "E18"] as const;
+export const OWNER_ALERT_CODES = ["E14", "E16", "E17", "E18", "E19"] as const;
 export type OwnerAlertCode = (typeof OWNER_ALERT_CODES)[number];
 
 export type OwnerAlert = {
@@ -176,6 +191,22 @@ export async function collectCloudBoardAlerts(at: Date): Promise<CloudBoardAlert
       if (line) alerts.push({ code: "E18", key: def.key, line });
     }
 
+    // E19: the cron's own heartbeat (scheduled.ts stamps it at the end of every
+    // successful run). A row older than 25 h means at least one 12:00 UTC run was
+    // missed - this run reports it, because a missed run cannot report itself. No
+    // row yet = first deploy of the heartbeat: nothing to compare, no wolf cried.
+    const beat = await readBoardObservation(CRON_HEARTBEAT_KEY);
+    if (beat.observation) {
+      const ageMs = at.getTime() - beat.observation.observedAtUnix * 1000;
+      if (ageMs > CRON_HEARTBEAT_STALE_MS) {
+        alerts.push({
+          code: "E19",
+          key: "cron-heartbeat",
+          line: `daily cron heartbeat is ${(ageMs / 3_600_000).toFixed(1)} h old (last ok run ${formatObservationUtc(beat.observation.observedAtUnix)}); at least one 12:00 UTC run was missed - this run is reporting it`,
+        });
+      }
+    }
+
     return { alerts, failure: null };
   } catch (error) {
     return { alerts: [], failure: error instanceof Error ? error.message : String(error) };
@@ -198,6 +229,10 @@ const ALERT_COPY: Record<OwnerAlertCode, { title: string; footer: string }> = {
   E16: {
     title: "PRIME board alert check failed [E16] - quota alerts could not be evaluated:",
     footer: "The quota board may be unreadable too; treat E14/E17/E18 as unchecked for this run.",
+  },
+  E19: {
+    title: "PRIME cron heartbeat stale [E19] - a daily run was missed:",
+    footer: "Every successful run stamps cron:last-run; a stale stamp means the 12:00 UTC schedule has a gap. Prove it truly never ran before re-running anything - no duplicate runs (E15 rule 1).",
   },
 };
 

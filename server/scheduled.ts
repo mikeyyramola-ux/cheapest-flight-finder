@@ -1,8 +1,9 @@
 import type { Request, Response } from "express";
-import { collectCloudBoardAlerts, sendOwnerAlerts, type OwnerAlert } from "./board-escalation";
+import { collectCloudBoardAlerts, CRON_HEARTBEAT_KEY, sendOwnerAlerts, type OwnerAlert } from "./board-escalation";
 import { liveBudgetStatus, scanTrackedRoutes, sendPriceDropNotification } from "./flight-data";
 import { loadQuotaStatus, QUOTA_WARN_PERCENT } from "./quota";
 import { checkPartnerEndpoints } from "./partner-health";
+import { saveBoardObservation } from "./observations";
 import { sdk } from "./_core/sdk";
 
 /** Cron endpoints are unauthenticated by platform token alone, so they must carry
@@ -33,7 +34,7 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     // must never be able to look like a healthy run.
     const budget = liveBudgetStatus();
     const quotas = await loadQuotaStatus();
-    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6" | "E13" | "E14" | "E16" | "E17" | "E18"; detail: string }> = [];
+    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6" | "E13" | "E14" | "E16" | "E17" | "E18" | "E19"; detail: string }> = [];
     /** Quota conditions handed to Telegram this run. E14 words are built once, below,
      *  and reused verbatim so the JSON record and the chat cannot disagree. */
     const ownerAlerts: OwnerAlert[] = [];
@@ -105,6 +106,26 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       }`,
     );
 
+    // SELF-PROVING CRON (owner GO 2026-09-30): stamp our own TiDB so "did the daily
+    // run happen?" stays answerable forever at $0, without Vercel's gated runtime
+    // logs. A failed write never turns a healthy run into a 500 - it is reported in
+    // this response, and from the next run onward as E19 staleness (absence is never
+    // dressed up as all-clear, E15's rule).
+    let heartbeat: { ok: boolean; error: string | null; at: string } = { ok: false, error: null, at: at.toISOString() };
+    try {
+      const stamp = Math.floor(at.getTime() / 1000);
+      await saveBoardObservation({
+        metricKey: CRON_HEARTBEAT_KEY,
+        periodKey: "scan-flight-deals",
+        used: stamp,
+        observedAtUnix: stamp,
+        detail: `[cron] run ok ${at.toISOString()}; heartbeat written by scanFlightDealsHandler`,
+      });
+      heartbeat = { ok: true, error: null, at: at.toISOString() };
+    } catch (error) {
+      heartbeat = { ok: false, error: error instanceof Error ? error.message : String(error), at: at.toISOString() };
+    }
+
     return res.json({
       ok: true,
       checkedAt: result.checkedAt,
@@ -147,6 +168,8 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       // escalations field above).
       boardAlertCheck: { ok: !boardAlerts.failure, error: boardAlerts.failure },
       ownerAlerts: alertDelivery,
+      // Proof-of-life for this run, stored under cron:last-run as well (see above).
+      heartbeat,
       failures: notifications.filter(item => !item.delivered).map(item => ({ channel: item.channel, reason: item.reason })),
     });
   } catch (error) {
