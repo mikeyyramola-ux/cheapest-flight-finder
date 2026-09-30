@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { bounded, loadQuotaStatus, QUOTA_WARN_PERCENT, type QuotaStatus } from "./quota";
+import { probeRenderEngine } from "./render-probe";
 
 /**
  * The quota board: every outside service Fareloop cannot run without, with the one
@@ -31,8 +32,9 @@ import { bounded, loadQuotaStatus, QUOTA_WARN_PERCENT, type QuotaStatus } from "
 const GIB = 1024 ** 3;
 
 export type CloudCategory = "supplier" | "hosting" | "database" | "payments";
-/** How `used` is obtained: our own credit ledger, a SQL read, or no feed at all. */
-export type CloudFeed = "ledger" | "sql" | "none";
+/** How `used` is obtained: our own credit ledger, a SQL read, a live HTTP probe,
+ *  or no feed at all. */
+export type CloudFeed = "ledger" | "sql" | "probe" | "none";
 export type CloudPeriod = "month" | "lifetime" | "day" | "standing" | null;
 
 export type CloudServiceRow = {
@@ -54,7 +56,7 @@ export type CloudServiceRow = {
   /** False while a supplier is deliberately out of the live chain (E14's meaning). */
   wired: boolean;
   feed: CloudFeed;
-  source: "database" | "instance-memory" | "none";
+  source: "database" | "instance-memory" | "probe" | "none";
   /** The document or ledger the ceiling came from. Required: no unsourced limit. */
   limitSource: string;
   note: string | null;
@@ -118,6 +120,30 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     note: "Same missing feed as the row above: the limit is known, the running count is not.",
   },
   {
+    key: "render-instance-hours",
+    service: "Render",
+    category: "hosting",
+    metric: "Free instance hours",
+    unit: "hours",
+    limit: 750,
+    period: "month",
+    feed: "none",
+    limitSource: "Render free plan published ceiling - 750 Free instance hours per workspace per calendar month; exhaustion suspends every free web service until next month (render.com/docs/free)",
+    note: "GitHub Actions pings /api/cloud-tick every 6 minutes to hold the engine awake (wire v1), so an always-on month consumes about 720-744 of the 750 hours - this ceiling has almost no headroom. No Render API key is held here, so the running count is not readable from in here and no number is claimed for it.",
+  },
+  {
+    key: "render-engine",
+    service: "Render",
+    category: "hosting",
+    metric: "Engine ledger freshness",
+    unit: "min",
+    limit: 15,
+    period: "standing",
+    feed: "probe",
+    limitSource: "PRIME's own engine rule, not a Render ceiling - the primary engine (prime-enterprise) writes its ledger on every real event, so state older than 15 minutes means the daemons are down while Flask still answers 200 (the 09-24/25 overnight failure)",
+    note: "Read live at page load from the engine's own /api/state ledger timestamp. When the probe cannot reach it, the row reports no number instead of a guess.",
+  },
+  {
     key: "paypal-allowance",
     service: "PayPal",
     category: "payments",
@@ -142,7 +168,7 @@ export function buildCloudRow(
   def: CloudServiceDef,
   used: number | null,
   source: CloudServiceRow["source"],
-  extras: { wired?: boolean } = {},
+  extras: { wired?: boolean; note?: string | null } = {},
 ): CloudServiceRow {
   // A ceiling of zero or below is not a ceiling, so it is treated as absent rather
   // than producing a division by zero or a permanent 100%.
@@ -166,6 +192,7 @@ export function buildCloudRow(
     exhausted,
     wired: extras.wired ?? true,
     source: used !== null ? source : "none",
+    note: extras.note ?? def.note,
   };
 }
 
@@ -211,17 +238,28 @@ async function measureStorageBytes(): Promise<{ used: number | null; source: Clo
  * intact. An ops report that fails entirely is one nobody looks at twice.
  */
 export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServiceRow[]> {
-  let suppliers: QuotaStatus[] = [];
-  try {
-    suppliers = await loadQuotaStatus(at);
-  } catch {
-    suppliers = [];
-  }
+  // The three sources are independent by design and are now read in parallel: a
+  // board built from sequential timeouts could stack bounded(4 s) + bounded(4 s)
+  // + probe(6 s) past the serverless function limit and fail the whole request,
+  // which is the exact "wire dies, board dies" outcome the board exists to avoid.
+  const [suppliers, storage, probe] = await Promise.all([
+    loadQuotaStatus(at).catch(() => [] as QuotaStatus[]),
+    measureStorageBytes(),
+    probeRenderEngine(at),
+  ]);
 
-  const storage = await measureStorageBytes();
-
-  const rows: CloudServiceRow[] = suppliers.map(status =>
-    buildCloudRow(
+  const rows: CloudServiceRow[] = suppliers.map(status => {
+    // Rule 2 of this file, enforced at the mapping layer: `loadQuotaStatus` reports
+    // used = 0 with source = "none" when TiDB was unreachable and this instance
+    // remembers no charges of its own. Rendering that as 0/500 "Healthy" would be
+    // the board's worst possible lie - a false green during the very outage it is
+    // supposed to expose - so an unobserved supplier count becomes null, not 0.
+    const unobserved = status.source === "none";
+    const reserveNote = status.wired
+      ? null
+      : "Held in reserve: this supplier is not wired into the live search chain, so the pool only drains if we deliberately route to it.";
+    const unreadNote = "Credit ledger was unreachable at read time - no number is claimed rather than a false zero.";
+    return buildCloudRow(
       {
         key: `${status.key}-credits`,
         service: status.label,
@@ -232,19 +270,25 @@ export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServic
         period: status.period === "lifetime" ? "lifetime" : "month",
         feed: "ledger",
         limitSource: "Credit ledger we write at charge time - no supplier publishes a usage endpoint",
-        note: status.wired
-          ? null
-          : "Held in reserve: this supplier is not wired into the live search chain, so the pool only drains if we deliberately route to it.",
+        note: [reserveNote, unobserved ? unreadNote : null].filter(Boolean).join(" ") || null,
       },
-      status.used,
+      unobserved ? null : status.used,
       status.source,
       { wired: status.wired },
-    ),
-  );
+    );
+  });
 
   for (const def of CLOUD_SERVICE_DEFS) {
     if (def.key === "tidb-storage") {
       rows.push(buildCloudRow(def, storage.used, storage.source));
+      continue;
+    }
+    if (def.key === "render-engine") {
+      rows.push(
+        buildCloudRow(def, probe.used, probe.used !== null ? "probe" : "none", {
+          note: probe.reason ?? def.note,
+        }),
+      );
       continue;
     }
     rows.push(buildCloudRow(def, null, "none"));

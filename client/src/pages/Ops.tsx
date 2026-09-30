@@ -24,13 +24,14 @@ const TONE = {
   ok: "#b9ff98",
   warn: "#f5b74e",
   exhausted: "#ff6b6b",
+  unreachable: "#f5b74e",
   nofeed: "#6f7488",
   noquota: "#8b8fa3",
 } as const;
 
 type RowState = keyof typeof TONE;
 
-type CloudRow = {
+export type CloudRow = {
   key: string;
   service: string;
   category: "supplier" | "hosting" | "database" | "payments";
@@ -43,8 +44,8 @@ type CloudRow = {
   warn: boolean;
   exhausted: boolean;
   wired: boolean;
-  feed: "ledger" | "sql" | "none";
-  source: "database" | "instance-memory" | "none";
+  feed: "ledger" | "sql" | "probe" | "none";
+  source: "database" | "instance-memory" | "probe" | "none";
   limitSource: string;
   note: string | null;
 };
@@ -57,13 +58,17 @@ type Board = {
   services: CloudRow[];
 };
 
-const FEED_LABEL: Record<CloudRow["feed"], string> = { ledger: "Credit ledger", sql: "SQL read", none: "No feed" };
+const FEED_LABEL: Record<CloudRow["feed"], string> = { ledger: "Credit ledger", sql: "SQL read", probe: "Live probe", none: "No feed" };
 
 /** Exhausted beats warn beats measured; a ceiling with no counter is its own state. */
-function rowState(row: CloudRow): RowState {
+export function rowState(row: CloudRow): RowState {
   if (row.exhausted) return "exhausted";
   if (row.warn) return "warn";
   if (row.percent !== null) return "ok";
+  // A probe row without a reading means the live check failed at page load - the
+  // wire is dark, which has to look different from a metric nobody watches. It
+  // stays amber (one reading, not an incident) and the note carries the reason.
+  if (row.feed === "probe" && row.used === null) return "unreachable";
   return row.limit === null ? "noquota" : "nofeed";
 }
 
@@ -71,6 +76,7 @@ const STATE_LABEL: Record<RowState, string> = {
   ok: "Healthy",
   warn: "At 75%",
   exhausted: "Exhausted",
+  unreachable: "Probe failed",
   nofeed: "Not monitored",
   noquota: "No allowance",
 };

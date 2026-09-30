@@ -41,8 +41,12 @@ function fakeReq(authorization?: string) {
 }
 
 function fakeRes() {
-  const state: { status?: number; body?: Record<string, unknown> } = {};
+  const state: { status?: number; body?: Record<string, unknown>; headers: Record<string, string> } = { headers: {} };
   const res = {
+    set(name: string, value: string) {
+      state.headers[name.toLowerCase()] = value;
+      return res;
+    },
     status(code: number) {
       state.status = code;
       return res;
@@ -169,6 +173,12 @@ describe("what the board reports", () => {
     await handler(fakeReq(`Bearer ${SECRET}`), res);
     const body = state.body as Body;
     expect(Number.isNaN(Date.parse(body.generatedAt))).toBe(false);
+  });
+
+  it("is never cacheable - a snapshot must not outlive the generatedAt it carries", async () => {
+    const { res, state } = fakeRes();
+    await handler(fakeReq(`Bearer ${SECRET}`), res);
+    expect(state.headers["cache-control"]).toBe("no-store");
   });
 
   it("reports a board that cannot be built instead of inventing one", async () => {

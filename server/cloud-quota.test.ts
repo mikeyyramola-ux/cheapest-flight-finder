@@ -16,12 +16,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * escalation it is supposed to preview would be worse than no dashboard.
  */
 
-const { quotaMock } = vi.hoisted(() => ({ quotaMock: vi.fn() }));
+const { quotaMock, probeMock } = vi.hoisted(() => ({ quotaMock: vi.fn(), probeMock: vi.fn() }));
 
 vi.mock("./quota", async () => {
   const actual = await vi.importActual<typeof import("./quota")>("./quota");
   return { ...actual, loadQuotaStatus: () => quotaMock() };
 });
+
+// The Render probe is a live HTTP call to the primary engine: no test may open one,
+// for the same reason no test opens a database connection. Its answer is asserted
+// through this mock, exactly like the ledger's.
+vi.mock("./render-probe", () => ({ probeRenderEngine: () => probeMock() }));
 
 // No test should ever open a database connection: the storage read is asserted to
 // degrade to "no feed" instead, which is exactly what a production outage looks like.
@@ -115,6 +120,8 @@ describe("unknown is never reported as unused", () => {
 describe("the board", () => {
   beforeEach(() => {
     quotaMock.mockReset();
+    probeMock.mockReset();
+    probeMock.mockResolvedValue({ used: 0, reason: null });
     quotaMock.mockResolvedValue([
       { key: "scrappa", label: "Scrappa (Google Flights)", used: 8, limit: 500, percent: 1, period: "2026-09", warn: false, exhausted: false, wired: true, source: "database" },
       { key: "ignav", label: "Ignav", used: 0, limit: 1000, percent: 0, period: "lifetime", warn: false, exhausted: false, wired: true, source: "database" },
@@ -162,6 +169,94 @@ describe("the board", () => {
     const rows = await loadCloudBoard();
     expect(rows.length).toBe(CLOUD_SERVICE_DEFS.length);
     expect(rows.some(row => row.category === "supplier")).toBe(false);
+  });
+
+  it("never renders an unread supplier count as a healthy zero (the false-green guard)", async () => {
+    // The production shape of a TiDB outage: loadQuotaStatus cannot read the ledger,
+    // remembers no local charges, and hands back used = 0 with source = "none".
+    // Rendered literally that row reads "0/500, Healthy" during the very outage the
+    // board exists to expose - so it must come back as no number instead.
+    quotaMock.mockResolvedValue([
+      { key: "scrappa", label: "Scrappa (Google Flights)", used: 0, limit: 500, percent: 0, period: "2026-09", warn: false, exhausted: false, wired: true, source: "none" },
+    ]);
+    const rows = await loadCloudBoard();
+    const row = rows.find(item => item.key === "scrappa-credits");
+    expect(row).toBeDefined();
+    expect(row?.used).toBeNull();
+    expect(row?.percent).toBeNull();
+    expect(row?.source).toBe("none");
+    expect(row?.note).toMatch(/unreachable/i);
+  });
+
+  it("still reports a genuinely zero count when the ledger did answer", async () => {
+    quotaMock.mockResolvedValue([
+      { key: "ignav", label: "Ignav", used: 0, limit: 1000, percent: 0, period: "lifetime", warn: false, exhausted: false, wired: true, source: "database" },
+    ]);
+    const rows = await loadCloudBoard();
+    const row = rows.find(item => item.key === "ignav-credits");
+    expect(row?.used).toBe(0);
+    expect(row?.percent).toBe(0);
+    expect(row?.source).toBe("database");
+  });
+
+  it("lists Render's hours ceiling with its document and no invented count", async () => {
+    const rows = await loadCloudBoard();
+    const hours = rows.find(row => row.key === "render-instance-hours");
+    expect(hours).toBeDefined();
+    expect(hours?.limit).toBe(750);
+    expect(hours?.feed).toBe("none");
+    expect(hours?.used).toBeNull();
+    expect(hours?.limitSource).toMatch(/render\.com\/docs\/free/);
+    expect(hours?.note).toMatch(/no number is claimed/i);
+  });
+
+  it("puts the primary engine on the board as a live probe against our own rule", async () => {
+    const rows = await loadCloudBoard();
+    const engine = rows.find(row => row.key === "render-engine");
+    expect(engine).toBeDefined();
+    expect(engine?.feed).toBe("probe");
+    expect(engine?.limit).toBe(15);
+    expect(engine?.limitSource).toMatch(/own engine rule/i);
+    expect(engine?.category).toBe("hosting");
+  });
+
+  it("measures engine freshness against the 15-minute rule with E14's arithmetic", async () => {
+    probeMock.mockResolvedValue({ used: 2, reason: null });
+    const fresh = (await loadCloudBoard()).find(row => row.key === "render-engine");
+    expect(fresh?.used).toBe(2);
+    expect(fresh?.percent).toBe(13);
+    expect(fresh?.warn).toBe(false);
+    expect(fresh?.exhausted).toBe(false);
+    expect(fresh?.source).toBe("probe");
+
+    probeMock.mockResolvedValue({ used: 12, reason: null });
+    const aging = (await loadCloudBoard()).find(row => row.key === "render-engine");
+    expect(aging?.percent).toBe(80);
+    expect(aging?.warn).toBe(true);
+    expect(aging?.exhausted).toBe(false);
+
+    probeMock.mockResolvedValue({ used: 20, reason: null });
+    const stale = (await loadCloudBoard()).find(row => row.key === "render-engine");
+    expect(stale?.exhausted).toBe(true);
+  });
+
+  it("shows a failed engine probe as no number, with the reason on the row", async () => {
+    probeMock.mockResolvedValue({
+      used: null,
+      reason: "probe failed 06:00 UTC (timeout after 6000 ms) - engine number withheld, never assumed",
+    });
+    const rows = await loadCloudBoard();
+    const engine = rows.find(row => row.key === "render-engine");
+    expect(engine?.used).toBeNull();
+    expect(engine?.percent).toBeNull();
+    expect(engine?.source).toBe("none");
+    expect(engine?.note).toMatch(/withheld, never assumed/);
+  });
+
+  it("counts the four ceiling-without-feed rows as blind spots", async () => {
+    const summary = summariseCloudBoard(await loadCloudBoard());
+    // tidb-ru, both Vercel rows, and Render's hours ceiling: real ceilings, no read.
+    expect(summary.blindSpots).toBe(4);
   });
 });
 

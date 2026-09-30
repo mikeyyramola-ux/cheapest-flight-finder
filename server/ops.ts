@@ -22,6 +22,11 @@ export async function opsQuotasHandler(req: Request, res: Response) {
 
   try {
     const services = await loadCloudBoard();
+    // Never cacheable. A cached body would keep answering with numbers that were
+    // true at generation time while the operator reads them as live - the board's
+    // own `generatedAt` travels inside the body, but the honest fix is to not hold
+    // a snapshot in any layer at all.
+    res.set("Cache-Control", "no-store");
     return res.json({
       ok: true,
       generatedAt: new Date().toISOString(),
