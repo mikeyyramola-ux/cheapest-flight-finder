@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "./db";
+import { formatObservationUtc, measureConsoleObservation } from "./observations";
 import { bounded, loadQuotaStatus, QUOTA_WARN_PERCENT, type QuotaStatus } from "./quota";
 import { probeRenderEngine } from "./render-probe";
+import { measureRenderInstanceHours, persistRenderCheckpoint } from "./render-usage";
 import { measureVercelDeployments } from "./vercel-usage";
 
 /**
@@ -34,8 +36,9 @@ const GIB = 1024 ** 3;
 
 export type CloudCategory = "supplier" | "hosting" | "database" | "payments";
 /** How `used` is obtained: our own credit ledger, a SQL read, a live HTTP probe,
- *  a provider's own REST API, or no feed at all. */
-export type CloudFeed = "ledger" | "sql" | "probe" | "api" | "none";
+ *  a provider's own REST API, a number recorded by the daily audit (console-only
+ *  meters), or no feed at all. */
+export type CloudFeed = "ledger" | "sql" | "probe" | "api" | "audit" | "none";
 export type CloudPeriod = "month" | "lifetime" | "day" | "standing" | null;
 
 export type CloudServiceRow = {
@@ -92,9 +95,9 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     unit: "RU",
     limit: 50_000_000,
     period: "month",
-    feed: "none",
+    feed: "audit",
     limitSource: "TiDB Cloud Starter free quota - 50 million RU per month per instance, first 5 instances (pingcap.com/tidb-cloud-starter-pricing-details, verified 2026-09-30)",
-    note: "Metered by TiDB Cloud and not exposed through SQL (checked against the current docs) - the viewers are the console's Usage This Month panel and the cluster Metrics page. The TiDB Cloud API's billing endpoint reads a month's bill but needs an API key this project does not hold, so no key = no reading. Reaching the quota throttles the instance (new connections denied) until the month rolls over.",
+    note: "The only viewer of this counter is TiDB Cloud's own console ('Capacity used this month' panel, plus the cluster Metrics page) - proven exhaustively on 2026-09-30 with an org API key minted for the purpose: the TiDB Cloud billing API answers in money only (cents, no RU anywhere in the response), all five public API specs (billing, serverless, dedicated, iam, dataservice) carry no usage endpoint, and SQL access to metering tables is denied by TiDB's limited-sql-features policy. So the daily audit reads the console panel and records the number here with its timestamp; older than 30 hours it is withheld rather than shown as current. Reaching 50M RU throttles the instance (new connections denied) until the month rolls over.",
   },
   {
     key: "vercel-data-transfer",
@@ -128,9 +131,9 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     unit: "hours",
     limit: 750,
     period: "month",
-    feed: "none",
+    feed: "api",
     limitSource: "Render free plan published ceiling - 750 Free instance hours per workspace per calendar month; exhaustion suspends every free web service until next month (render.com/docs/free)",
-    note: "GitHub Actions pings /api/cloud-tick every 30 minutes (quota-aware relay, ping.yml :13/:43) and our cloud mirror reads the engine every 15 minutes, so it runs near-continuous: an always-awake month spends 720-744 of the 750 hours (24 h x 30/31 days) - little headroom. No Render API key is held here, and Render's public API spec carries no billing or usage endpoint at all (verified 2026-09-30 - metrics only), so the only viewer of this counter is Render's billing page and no number is claimed from in here.",
+    note: "Measured live at page load from Render's metrics API: CPU samples integrate exactly the awake time Render bills (a free instance consumes an hour only while running - spun-down time costs nothing, and a sample every 300 s while awake makes each run's length readable), because Render's API publishes no billing or usage endpoint at all (spec checked 2026-09-30 - metrics only). Earlier hours of the month are carried by a checkpoint in our database, since Render retains only 7 days of free-plan metrics (render.com/docs/service-metrics). Render's billing page remains the authority: this derived method read 92.25 h against its 92.65 h on 2026-09-30 (0.4% low - boot slivers before the first sample). The engine is pinged every 30 minutes and read every 15, so it runs near-continuous: an always-awake month spends 720-744 of the 750 hours. A missing key or failed read shows no number, never a zero.",
   },
   {
     key: "render-engine",
@@ -231,6 +234,14 @@ async function measureStorageBytes(): Promise<{ used: number | null; source: Clo
 }
 
 /**
+ * How old a console observation may be and still be presented as current. The daily
+ * audit refreshes it once a day, so 30 hours tolerates one late audit and no more:
+ * past that the row shows the failed-read state with the age, instead of a number
+ * nobody has confirmed.
+ */
+export const TIDB_OBSERVATION_MAX_AGE_MS = 30 * 60 * 60 * 1000;
+
+/**
  * The full board: supplier credits first (they are what an alert depends on), then
  * every other service with a published ceiling.
  *
@@ -239,17 +250,28 @@ async function measureStorageBytes(): Promise<{ used: number | null; source: Clo
  * intact. An ops report that fails entirely is one nobody looks at twice.
  */
 export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServiceRow[]> {
-  // The four sources are independent by design and are read in parallel: a
-  // board built from sequential timeouts could stack bounded(4 s) + bounded(4 s)
-  // + probe(6 s) past the serverless function limit and fail the whole request,
-  // which is the exact "wire dies, board dies" outcome the board exists to avoid.
-  const [suppliers, storage, probe, deployments] = await Promise.all([
+  // The six sources are independent by design and are read in parallel: a
+  // board built from sequential timeouts could stack bounded(4 s) calls past the
+  // serverless function limit and fail the whole request, which is the exact
+  // "wire dies, board dies" outcome the board exists to avoid.
+  const [suppliers, storage, probe, deployments, renderHours, tidbConsole] = await Promise.all([
     loadQuotaStatus(at).catch(() => [] as QuotaStatus[]),
     measureStorageBytes(),
     probeRenderEngine(at),
     measureVercelDeployments(at).catch(() => ({
       used: null,
       reason: "Vercel deployments read failed - the count is withheld, never assumed.",
+    })),
+    measureRenderInstanceHours(at).catch(() => ({
+      used: null,
+      reason: "Render hours read failed - the count is withheld, never assumed.",
+      checkpoint: null,
+    })),
+    measureConsoleObservation("tidb-ru", at, TIDB_OBSERVATION_MAX_AGE_MS).catch(() => ({
+      used: null,
+      reason: "Console observation read failed - the count is withheld, never assumed.",
+      observedAtUnix: null,
+      detail: null,
     })),
   ]);
 
@@ -304,6 +326,32 @@ export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServic
       rows.push(
         buildCloudRow(def, deployments.used, deployments.used !== null ? "api" : "none", {
           note: deployments.reason ?? def.note,
+        }),
+      );
+      continue;
+    }
+    if (def.key === "render-instance-hours") {
+      // A successful measurement also refreshes the checkpoint that lets next time's
+      // read cover a month older than Render's 7-day retention (see render-usage.ts).
+      // The checkpoint is a total as of this moment, so overlapping readers write
+      // equivalent values and no hour can be counted twice.
+      await persistRenderCheckpoint(renderHours);
+      rows.push(
+        buildCloudRow(def, renderHours.used, renderHours.used !== null ? "api" : "none", {
+          note: renderHours.reason ?? def.note,
+        }),
+      );
+      continue;
+    }
+    if (def.key === "tidb-ru") {
+      // The console number with its age: fresh enough, shown with the moment the
+      // audit recorded it; stale or missing, withheld with the reason on the row.
+      const observed = tidbConsole.observedAtUnix !== null
+        ? ` Console observation recorded ${formatObservationUtc(tidbConsole.observedAtUnix)} (the daily audit refreshes it; past 30 hours it is withheld).`
+        : "";
+      rows.push(
+        buildCloudRow(def, tidbConsole.used, tidbConsole.used !== null ? "database" : "none", {
+          note: tidbConsole.reason ? `${tidbConsole.reason} ${def.note}` : `${def.note}${observed}`,
         }),
       );
       continue;

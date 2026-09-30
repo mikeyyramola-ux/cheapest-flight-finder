@@ -47,6 +47,14 @@ describe("row state vocabulary", () => {
     expect(rowState(row({ feed: "api", used: null, percent: null }))).toBe("unreachable");
   });
 
+  it("calls a daily-audit observation that is missing or overdue the same failed-read state", () => {
+    // TiDB's RU row is fed by the console observation the daily audit records. When
+    // the number is absent or past its 30-hour freshness window, the row has to say
+    // the read failed - not adopt the grey of a metric nobody keeps.
+    expect(rowState(row({ feed: "audit", used: null, percent: null }))).toBe("unreachable");
+    expect(rowState(row({ feed: "audit", used: 416_666, percent: 0, source: "database" }))).toBe("ok");
+  });
+
   it("calls a probe that answered healthy while it is young", () => {
     expect(rowState(row({ feed: "probe", used: 2, percent: 13, source: "probe" }))).toBe("ok");
   });

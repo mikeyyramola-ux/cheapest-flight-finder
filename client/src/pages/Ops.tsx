@@ -44,7 +44,7 @@ export type CloudRow = {
   warn: boolean;
   exhausted: boolean;
   wired: boolean;
-  feed: "ledger" | "sql" | "probe" | "api" | "none";
+  feed: "ledger" | "sql" | "probe" | "api" | "audit" | "none";
   source: "database" | "instance-memory" | "probe" | "api" | "none";
   limitSource: string;
   note: string | null;
@@ -63,6 +63,7 @@ const FEED_LABEL: Record<CloudRow["feed"], string> = {
   sql: "SQL read",
   probe: "Live probe",
   api: "REST API",
+  audit: "Daily audit",
   none: "No feed",
 };
 
@@ -72,10 +73,10 @@ export function rowState(row: CloudRow): RowState {
   if (row.warn) return "warn";
   if (row.percent !== null) return "ok";
   // A live source without a reading means the check itself failed right now - the
-  // probe or the provider API went dark - which has to look different from a metric
-  // nobody watches. It stays amber (one reading, not an incident) and the note
-  // carries the reason.
-  if ((row.feed === "probe" || row.feed === "api") && row.used === null) return "unreachable";
+  // probe, the provider API, or the daily audit's recorded number went dark - which
+  // has to look different from a metric nobody watches. It stays amber (one reading,
+  // not an incident) and the note carries the reason.
+  if ((row.feed === "probe" || row.feed === "api" || row.feed === "audit") && row.used === null) return "unreachable";
   return row.limit === null ? "noquota" : "nofeed";
 }
 

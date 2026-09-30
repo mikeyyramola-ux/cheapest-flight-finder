@@ -16,10 +16,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * escalation it is supposed to preview would be worse than no dashboard.
  */
 
-const { quotaMock, probeMock, usageMock } = vi.hoisted(() => ({
+const { quotaMock, probeMock, usageMock, renderHoursMock, obsMock, persistMock } = vi.hoisted(() => ({
   quotaMock: vi.fn(),
   probeMock: vi.fn(),
   usageMock: vi.fn(),
+  renderHoursMock: vi.fn(),
+  obsMock: vi.fn(),
+  persistMock: vi.fn(),
 }));
 
 vi.mock("./quota", async () => {
@@ -35,6 +38,21 @@ vi.mock("./render-probe", () => ({ probeRenderEngine: () => probeMock() }));
 // Vercel's deployments API is the same deal - a live provider call - so the count is
 // asserted through this mock rather than by reaching the network.
 vi.mock("./vercel-usage", () => ({ measureVercelDeployments: () => usageMock() }));
+
+// Render's metrics API likewise: the hours row and its checkpoint persistence are
+// asserted through these mocks rather than by reaching the network.
+vi.mock("./render-usage", () => ({
+  measureRenderInstanceHours: () => renderHoursMock(),
+  persistRenderCheckpoint: (...args: unknown[]) => persistMock(...args),
+}));
+
+// The console observation store is a database table; its freshness rule has its own
+// unit tests (observations.test.ts), and this file asserts only how the board row
+// presents what it hands back.
+vi.mock("./observations", () => ({
+  measureConsoleObservation: () => obsMock(),
+  formatObservationUtc: (unix: number) => `${new Date(unix * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`,
+}));
 
 // No test should ever open a database connection: the storage read is asserted to
 // degrade to "no feed" instead, which is exactly what a production outage looks like.
@@ -130,8 +148,17 @@ describe("the board", () => {
     quotaMock.mockReset();
     probeMock.mockReset();
     usageMock.mockReset();
+    renderHoursMock.mockReset();
+    obsMock.mockReset();
+    persistMock.mockReset();
     probeMock.mockResolvedValue({ used: 0, reason: null });
     usageMock.mockResolvedValue({ used: 1, reason: null });
+    renderHoursMock.mockResolvedValue({
+      used: 92.42,
+      reason: null,
+      checkpoint: { metricKey: "render-instance-hours", periodKey: "2026-09", used: 332712, observedAtUnix: Math.floor(Date.now() / 1000), detail: "awake seconds" },
+    });
+    obsMock.mockResolvedValue({ used: 416_666, reason: null, observedAtUnix: Math.floor(Date.now() / 1000) - 600, detail: "console panel" });
     quotaMock.mockResolvedValue([
       { key: "scrappa", label: "Scrappa (Google Flights)", used: 8, limit: 500, percent: 1, period: "2026-09", warn: false, exhausted: false, wired: true, source: "database" },
       { key: "ignav", label: "Ignav", used: 0, limit: 1000, percent: 0, period: "lifetime", warn: false, exhausted: false, wired: true, source: "database" },
@@ -209,15 +236,81 @@ describe("the board", () => {
     expect(row?.source).toBe("database");
   });
 
-  it("lists Render's hours ceiling with its document and no invented count", async () => {
+  it("measures Render's hours from its own metrics API, against the documented 750-hour ceiling", async () => {
     const rows = await loadCloudBoard();
     const hours = rows.find(row => row.key === "render-instance-hours");
     expect(hours).toBeDefined();
     expect(hours?.limit).toBe(750);
-    expect(hours?.feed).toBe("none");
-    expect(hours?.used).toBeNull();
+    expect(hours?.feed).toBe("api");
+    expect(hours?.used).toBe(92.42);
+    expect(hours?.percent).toBe(12);
+    expect(hours?.warn).toBe(false);
+    expect(hours?.source).toBe("api");
     expect(hours?.limitSource).toMatch(/render\.com\/docs\/free/);
-    expect(hours?.note).toMatch(/no number is claimed/i);
+    // The row says out loud that Render's billing page - not this reconstruction -
+    // is the authority, with the day the two were compared.
+    expect(hours?.note).toMatch(/billing page remains the authority/i);
+    // A successful measurement refreshes the checkpoint that carries earlier hours
+    // past Render's 7-day metrics retention (the real persistRenderCheckpoint
+    // unwraps the reading; this mock records what the loader handed it).
+    expect(persistMock).toHaveBeenCalledTimes(1);
+    expect(persistMock.mock.calls[0]?.[0]).toMatchObject({
+      used: 92.42,
+      checkpoint: { metricKey: "render-instance-hours", used: 332712 },
+    });
+  });
+
+  it("shows a failed hours read as no number, with the reason on the row", async () => {
+    renderHoursMock.mockResolvedValue({
+      used: null,
+      reason: "Render API key not configured (RENDER_API_KEY) - the hours are withheld, never assumed.",
+      checkpoint: null,
+    });
+    const rows = await loadCloudBoard();
+    const hours = rows.find(row => row.key === "render-instance-hours");
+    expect(hours?.used).toBeNull();
+    expect(hours?.percent).toBeNull();
+    expect(hours?.feed).toBe("api");
+    expect(hours?.source).toBe("none");
+    expect(hours?.note).toMatch(/withheld, never assumed/);
+  });
+
+  it("shows TiDB's RU counter from the daily audit's console observation", async () => {
+    const rows = await loadCloudBoard();
+    const ru = rows.find(row => row.key === "tidb-ru");
+    expect(ru?.feed).toBe("audit");
+    expect(ru?.used).toBe(416_666);
+    expect(ru?.percent).toBe(0);
+    expect(ru?.source).toBe("database");
+    expect(ru?.note).toMatch(/Console observation recorded/);
+    expect(ru?.note).toMatch(/daily audit refreshes it/);
+    expect(ru?.note).toMatch(/limited-sql-features/);
+  });
+
+  it("withholds a stale or missing console observation with the reason on the row", async () => {
+    obsMock.mockResolvedValue({
+      used: null,
+      reason: "Last observation was 41.0 h old (recorded 2026-09-29 19:00 UTC) - withheld rather than shown as current. console panel",
+      observedAtUnix: null,
+      detail: "console panel",
+    });
+    const rows = await loadCloudBoard();
+    const ru = rows.find(row => row.key === "tidb-ru");
+    expect(ru?.used).toBeNull();
+    expect(ru?.percent).toBeNull();
+    expect(ru?.feed).toBe("audit");
+    expect(ru?.source).toBe("none");
+    expect(ru?.note).toMatch(/withheld rather than shown as current/);
+  });
+
+  it("counts only Fast Data Transfer as a ceiling with no feed at all", async () => {
+    const summary = summariseCloudBoard(await loadCloudBoard());
+    // Tidb's RU counter (daily audit) and Render's hours (metrics API) are read now;
+    // deployments was already measured. The one remaining structural blind spot is
+    // Vercel's Fast Data Transfer, whose reader Vercel paywalls behind Pro.
+    expect(summary.blindSpots).toBe(1);
+    const blind = (await loadCloudBoard()).filter(row => row.limit !== null && row.feed === "none");
+    expect(blind.map(row => row.key)).toEqual(["vercel-data-transfer"]);
   });
 
   it("puts the primary engine on the board as a live probe against our own rule", async () => {
@@ -287,13 +380,6 @@ describe("the board", () => {
     expect(dep?.percent).toBeNull();
     expect(dep?.source).toBe("none");
     expect(dep?.note).toMatch(/withheld, never assumed/);
-  });
-
-  it("counts the three ceiling-without-feed rows as blind spots", async () => {
-    const summary = summariseCloudBoard(await loadCloudBoard());
-    // tidb-ru, Fast Data Transfer, and Render's hours ceiling: real ceilings, no
-    // read. Deployments used to be the fourth blind spot and is measured now.
-    expect(summary.blindSpots).toBe(3);
   });
 });
 
