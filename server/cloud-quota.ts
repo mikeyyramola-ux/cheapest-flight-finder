@@ -129,7 +129,7 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     period: "month",
     feed: "none",
     limitSource: "Render free plan published ceiling - 750 Free instance hours per workspace per calendar month; exhaustion suspends every free web service until next month (render.com/docs/free)",
-    note: "GitHub Actions pings /api/cloud-tick every 6 minutes to hold the engine awake (wire v1), so an always-on month consumes about 720-744 of the 750 hours - this ceiling has almost no headroom. No Render API key is held here, so the running count is not readable from in here and no number is claimed for it.",
+    note: "GitHub Actions pings /api/cloud-tick every 30 minutes (quota-aware relay, ping.yml :13/:43) and our cloud mirror reads the engine every 15 minutes, so it runs near-continuous: an always-awake month spends 720-744 of the 750 hours (24 h x 30/31 days) - little headroom. No Render API key is held here, so the running count is not readable from in here and no number is claimed for it.",
   },
   {
     key: "render-engine",
