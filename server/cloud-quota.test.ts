@@ -48,9 +48,10 @@ vi.mock("./render-usage", () => ({
 
 // The console observation store is a database table; its freshness rule has its own
 // unit tests (observations.test.ts), and this file asserts only how the board row
-// presents what it hands back.
+// presents what it hands back. The store holds one row per metric, so the mock
+// answers per key rather than with a single shared value.
 vi.mock("./observations", () => ({
-  measureConsoleObservation: () => obsMock(),
+  measureConsoleObservation: (key: string) => obsMock(key),
   formatObservationUtc: (unix: number) => `${new Date(unix * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`,
 }));
 
@@ -85,9 +86,14 @@ describe("every ceiling on the board can be traced", () => {
   });
 
   it("lists a ceiling with no feed as a gap rather than leaving it off the board", () => {
-    const blind = CLOUD_SERVICE_DEFS.filter(item => item.limit !== null && item.feed === "none");
-    expect(blind.length).toBeGreaterThan(0);
-    for (const item of blind) {
+    // Every ceiling the registry currently lists does carry a feed, so the mechanism
+    // itself is asserted against a definition in the unread state: a ceiling with no
+    // reader must still be listed, rendering no number and no feed.
+    const unread = { ...def("vercel-data-transfer"), feed: "none" as const };
+    expect(unread.limit).not.toBeNull();
+    expect(buildCloudRow(unread, null, "none").used).toBeNull();
+    expect(buildCloudRow(unread, null, "none").feed).toBe("none");
+    for (const item of CLOUD_SERVICE_DEFS.filter(x => x.limit !== null && x.feed === "none")) {
       expect(buildCloudRow(item, null, "none").used).toBeNull();
     }
   });
@@ -158,7 +164,16 @@ describe("the board", () => {
       reason: null,
       checkpoint: { metricKey: "render-instance-hours", periodKey: "2026-09", used: 332712, observedAtUnix: Math.floor(Date.now() / 1000), detail: "awake seconds" },
     });
-    obsMock.mockResolvedValue({ used: 416_666, reason: null, observedAtUnix: Math.floor(Date.now() / 1000) - 600, detail: "console panel" });
+    obsMock.mockImplementation((key: string) =>
+      key === "vercel-data-transfer"
+        ? Promise.resolve({
+            used: 0.37443,
+            reason: null,
+            observedAtUnix: Math.floor(Date.now() / 1000) - 600,
+            detail: "Vercel's Usage page displayed 374.43 MB / 100 GB for the 2026-08-31 to 2026-10-01 cycle (stored as GB at 1000 MB = 1 GB).",
+          })
+        : Promise.resolve({ used: 416_666, reason: null, observedAtUnix: Math.floor(Date.now() / 1000) - 600, detail: "console panel" }),
+    );
     quotaMock.mockResolvedValue([
       { key: "scrappa", label: "Scrappa (Google Flights)", used: 8, limit: 500, percent: 1, period: "2026-09", warn: false, exhausted: false, wired: true, source: "database" },
       { key: "ignav", label: "Ignav", used: 0, limit: 1000, percent: 0, period: "lifetime", warn: false, exhausted: false, wired: true, source: "database" },
@@ -301,16 +316,38 @@ describe("the board", () => {
     expect(ru?.feed).toBe("audit");
     expect(ru?.source).toBe("none");
     expect(ru?.note).toMatch(/withheld rather than shown as current/);
+    // Both audit rows share the path, so a lapsed audit withholds Vercel's figure
+    // the same way - a green number nobody has refreshed is the failure mode.
+    const fdt = rows.find(row => row.key === "vercel-data-transfer");
+    expect(fdt?.used).toBeNull();
+    expect(fdt?.feed).toBe("audit");
+    expect(fdt?.source).toBe("none");
+    expect(fdt?.note).toMatch(/withheld rather than shown as current/);
   });
 
-  it("counts only Fast Data Transfer as a ceiling with no feed at all", async () => {
-    const summary = summariseCloudBoard(await loadCloudBoard());
-    // Tidb's RU counter (daily audit) and Render's hours (metrics API) are read now;
-    // deployments was already measured. The one remaining structural blind spot is
-    // Vercel's Fast Data Transfer, whose reader Vercel paywalls behind Pro.
-    expect(summary.blindSpots).toBe(1);
-    const blind = (await loadCloudBoard()).filter(row => row.limit !== null && row.feed === "none");
-    expect(blind.map(row => row.key)).toEqual(["vercel-data-transfer"]);
+  it("reads every ceiling it lists: Fast Data Transfer now arrives from the daily audit", async () => {
+    const rows = await loadCloudBoard();
+    const fdt = rows.find(row => row.key === "vercel-data-transfer");
+    // The REST reader stays Pro-gated, so the number comes from Vercel's own Usage
+    // page via the daily audit - the same console-only path TiDB's RU counter uses.
+    expect(fdt?.feed).toBe("audit");
+    expect(fdt?.used).toBeCloseTo(0.37443, 5);
+    expect(fdt?.percent).toBe(0);
+    expect(fdt?.source).toBe("database");
+    expect(fdt?.limit).toBe(100);
+    expect(fdt?.note).toMatch(/Console observation recorded/);
+    expect(fdt?.note).toMatch(/plan_upgrade_required/);
+    expect(fdt?.note).toMatch(/374\.43 MB \/ 100 GB/);
+
+    const summary = summariseCloudBoard(rows);
+    // Nothing with a ceiling is left unread: PayPal's row has no ceiling to fall
+    // short of, storage reads no database in tests, and both console-only meters are
+    // audit-fed. (In production the storage read counts too, so the board reads 9.)
+    expect(summary.monitored).toBe(8);
+    expect(summary.blindSpots).toBe(0);
+    expect(summary.total).toBe(CLOUD_SERVICE_DEFS.length + 3);
+    const blind = rows.filter(row => row.limit !== null && row.feed === "none");
+    expect(blind.map(row => row.key)).toEqual([]);
   });
 
   it("puts the primary engine on the board as a live probe against our own rule", async () => {
@@ -386,7 +423,7 @@ describe("the board", () => {
 describe("the roll-up", () => {
   const rows: CloudServiceRow[] = [
     buildCloudRow({ ...def("tidb-storage"), key: "a" }, 100, "database"),
-    buildCloudRow({ ...def("vercel-data-transfer"), key: "b" }, null, "none"),
+    buildCloudRow({ ...def("vercel-data-transfer"), key: "b", feed: "none" as const }, null, "none"),
     buildCloudRow({ ...def("paypal-allowance"), key: "c" }, null, "none"),
   ];
 

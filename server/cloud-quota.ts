@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { formatObservationUtc, measureConsoleObservation } from "./observations";
+import { formatObservationUtc, measureConsoleObservation, type ObservationEvaluation } from "./observations";
 import { bounded, loadQuotaStatus, QUOTA_WARN_PERCENT, type QuotaStatus } from "./quota";
 import { probeRenderEngine } from "./render-probe";
 import { measureRenderInstanceHours, persistRenderCheckpoint } from "./render-usage";
@@ -107,9 +107,9 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     unit: "GB",
     limit: 100,
     period: "month",
-    feed: "none",
+    feed: "audit",
     limitSource: "Vercel Hobby free allotment - first 100 GB Fast Data Transfer per month (vercel.com/docs/limits/fair-use-guidelines, typical monthly usage table, updated 2026-09-14)",
-    note: "The token is not the problem: Vercel's own usage API (/v1/usage) answered plan_upgrade_required when queried from this Hobby team (verified 2026-09-30), so reading Fast Data Transfer programmatically is a Pro/Enterprise feature. The only viewer at the $0 plan is the dashboard Usage page, and no number is claimed from in here.",
+    note: "The token is not the problem: Vercel's own usage API (/v1/usage) answers plan_upgrade_required for this Hobby team (re-verified 2026-09-30), so the only viewer at the $0 plan is the dashboard Usage page, and the daily audit records what that page displays here with the moment it was read - older than 30 hours it is withheld rather than shown as current. The figure is Vercel's own display converted at 1000 MB = 1 GB, with the raw display string kept on the observation. Passing 100 GB pauses the project until the plan is upgraded (vercel.com/blog/improved-infrastructure-pricing).",
   },
   {
     key: "vercel-deployments",
@@ -235,11 +235,29 @@ async function measureStorageBytes(): Promise<{ used: number | null; source: Clo
 
 /**
  * How old a console observation may be and still be presented as current. The daily
- * audit refreshes it once a day, so 30 hours tolerates one late audit and no more:
- * past that the row shows the failed-read state with the age, instead of a number
- * nobody has confirmed.
+ * audit refreshes these once a day (TiDB's RU panel, Vercel's Usage page), so 30 hours
+ * tolerates one late audit and no more: past that the row shows the failed-read state
+ * with the age, instead of a number nobody has confirmed.
  */
 export const TIDB_OBSERVATION_MAX_AGE_MS = 30 * 60 * 60 * 1000;
+
+/**
+ * One audit-fed row, built from a stored console observation.
+ *
+ * Fresh enough → the number, stamped with the moment the audit recorded it and a
+ * pointer to what the provider's own page displayed. Stale, missing, or unreadable →
+ * no number at all, with the reason (and the age) where the number would be: a
+ * quota figure nobody has refreshed in days is exactly the stale green that lets a
+ * ceiling be crossed unnoticed.
+ */
+function auditRow(def: CloudServiceDef, observed: ObservationEvaluation): CloudServiceRow {
+  const stamp = observed.observedAtUnix !== null
+    ? ` Console observation recorded ${formatObservationUtc(observed.observedAtUnix)} (the daily audit refreshes it; past 30 hours it is withheld).${observed.detail ? ` ${observed.detail}` : ""}`
+    : "";
+  return buildCloudRow(def, observed.used, observed.used !== null ? "database" : "none", {
+    note: observed.reason ? `${observed.reason} ${def.note}` : `${def.note}${stamp}`,
+  });
+}
 
 /**
  * The full board: supplier credits first (they are what an alert depends on), then
@@ -250,11 +268,11 @@ export const TIDB_OBSERVATION_MAX_AGE_MS = 30 * 60 * 60 * 1000;
  * intact. An ops report that fails entirely is one nobody looks at twice.
  */
 export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServiceRow[]> {
-  // The six sources are independent by design and are read in parallel: a
+  // The seven sources are independent by design and are read in parallel: a
   // board built from sequential timeouts could stack bounded(4 s) calls past the
   // serverless function limit and fail the whole request, which is the exact
   // "wire dies, board dies" outcome the board exists to avoid.
-  const [suppliers, storage, probe, deployments, renderHours, tidbConsole] = await Promise.all([
+  const [suppliers, storage, probe, deployments, renderHours, tidbConsole, vercelConsole] = await Promise.all([
     loadQuotaStatus(at).catch(() => [] as QuotaStatus[]),
     measureStorageBytes(),
     probeRenderEngine(at),
@@ -270,6 +288,12 @@ export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServic
     measureConsoleObservation("tidb-ru", at, TIDB_OBSERVATION_MAX_AGE_MS).catch(() => ({
       used: null,
       reason: "Console observation read failed - the count is withheld, never assumed.",
+      observedAtUnix: null,
+      detail: null,
+    })),
+    measureConsoleObservation("vercel-data-transfer", at, TIDB_OBSERVATION_MAX_AGE_MS).catch(() => ({
+      used: null,
+      reason: "Console observation read failed - the number is withheld, never assumed.",
       observedAtUnix: null,
       detail: null,
     })),
@@ -343,17 +367,12 @@ export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServic
       );
       continue;
     }
-    if (def.key === "tidb-ru") {
-      // The console number with its age: fresh enough, shown with the moment the
-      // audit recorded it; stale or missing, withheld with the reason on the row.
-      const observed = tidbConsole.observedAtUnix !== null
-        ? ` Console observation recorded ${formatObservationUtc(tidbConsole.observedAtUnix)} (the daily audit refreshes it; past 30 hours it is withheld).`
-        : "";
-      rows.push(
-        buildCloudRow(def, tidbConsole.used, tidbConsole.used !== null ? "database" : "none", {
-          note: tidbConsole.reason ? `${tidbConsole.reason} ${def.note}` : `${def.note}${observed}`,
-        }),
-      );
+    if (def.key === "tidb-ru" || def.key === "vercel-data-transfer") {
+      // Console-only meters (TiDB's RU panel, Vercel's Usage page): the number with
+      // the moment the audit recorded it when the observation is fresh, and the
+      // reason it is withheld - with the age - when it is not. Both rows share this
+      // path so neither can drift into showing a reading the other would refuse.
+      rows.push(auditRow(def, def.key === "tidb-ru" ? tidbConsole : vercelConsole));
       continue;
     }
     rows.push(buildCloudRow(def, null, "none"));

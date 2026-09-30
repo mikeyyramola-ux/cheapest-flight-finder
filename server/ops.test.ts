@@ -78,7 +78,9 @@ const supplierDef = {
 const healthyBoard = () => [
   buildCloudRow(supplierDef, 8, "database"),
   buildCloudRow(def("tidb-storage"), 1024, "database"),
-  buildCloudRow(def("vercel-data-transfer"), null, "none"),
+  // A ceiling nobody reads is still part of the board - this fixture keeps one in
+  // that state so the roll-up's blind-spot count stays honest against a real shape.
+  buildCloudRow({ ...def("vercel-data-transfer"), feed: "none" as const }, null, "none"),
   buildCloudRow(def("paypal-allowance"), null, "none"),
 ];
 
