@@ -16,7 +16,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * escalation it is supposed to preview would be worse than no dashboard.
  */
 
-const { quotaMock, probeMock } = vi.hoisted(() => ({ quotaMock: vi.fn(), probeMock: vi.fn() }));
+const { quotaMock, probeMock, usageMock } = vi.hoisted(() => ({
+  quotaMock: vi.fn(),
+  probeMock: vi.fn(),
+  usageMock: vi.fn(),
+}));
 
 vi.mock("./quota", async () => {
   const actual = await vi.importActual<typeof import("./quota")>("./quota");
@@ -27,6 +31,10 @@ vi.mock("./quota", async () => {
 // for the same reason no test opens a database connection. Its answer is asserted
 // through this mock, exactly like the ledger's.
 vi.mock("./render-probe", () => ({ probeRenderEngine: () => probeMock() }));
+
+// Vercel's deployments API is the same deal - a live provider call - so the count is
+// asserted through this mock rather than by reaching the network.
+vi.mock("./vercel-usage", () => ({ measureVercelDeployments: () => usageMock() }));
 
 // No test should ever open a database connection: the storage read is asserted to
 // degrade to "no feed" instead, which is exactly what a production outage looks like.
@@ -121,7 +129,9 @@ describe("the board", () => {
   beforeEach(() => {
     quotaMock.mockReset();
     probeMock.mockReset();
+    usageMock.mockReset();
     probeMock.mockResolvedValue({ used: 0, reason: null });
+    usageMock.mockResolvedValue({ used: 1, reason: null });
     quotaMock.mockResolvedValue([
       { key: "scrappa", label: "Scrappa (Google Flights)", used: 8, limit: 500, percent: 1, period: "2026-09", warn: false, exhausted: false, wired: true, source: "database" },
       { key: "ignav", label: "Ignav", used: 0, limit: 1000, percent: 0, period: "lifetime", warn: false, exhausted: false, wired: true, source: "database" },
@@ -253,10 +263,37 @@ describe("the board", () => {
     expect(engine?.note).toMatch(/withheld, never assumed/);
   });
 
-  it("counts the four ceiling-without-feed rows as blind spots", async () => {
+  it("counts Vercel deployments from the provider's own API against the 100-per-day window", async () => {
+    const rows = await loadCloudBoard();
+    const dep = rows.find(row => row.key === "vercel-deployments");
+    expect(dep).toBeDefined();
+    expect(dep?.feed).toBe("api");
+    expect(dep?.used).toBe(1);
+    expect(dep?.percent).toBe(1);
+    expect(dep?.warn).toBe(false);
+    expect(dep?.source).toBe("api");
+    expect(dep?.limit).toBe(100);
+    expect(dep?.limitSource).toMatch(/vercel\.com\/docs\/limits/);
+  });
+
+  it("shows a failed deployments read as no number, with the reason on the row", async () => {
+    usageMock.mockResolvedValue({
+      used: null,
+      reason: "Vercel deployments API did not answer at read time - the count is withheld, never assumed.",
+    });
+    const rows = await loadCloudBoard();
+    const dep = rows.find(row => row.key === "vercel-deployments");
+    expect(dep?.used).toBeNull();
+    expect(dep?.percent).toBeNull();
+    expect(dep?.source).toBe("none");
+    expect(dep?.note).toMatch(/withheld, never assumed/);
+  });
+
+  it("counts the three ceiling-without-feed rows as blind spots", async () => {
     const summary = summariseCloudBoard(await loadCloudBoard());
-    // tidb-ru, both Vercel rows, and Render's hours ceiling: real ceilings, no read.
-    expect(summary.blindSpots).toBe(4);
+    // tidb-ru, Fast Data Transfer, and Render's hours ceiling: real ceilings, no
+    // read. Deployments used to be the fourth blind spot and is measured now.
+    expect(summary.blindSpots).toBe(3);
   });
 });
 

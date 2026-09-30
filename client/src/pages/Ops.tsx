@@ -44,8 +44,8 @@ export type CloudRow = {
   warn: boolean;
   exhausted: boolean;
   wired: boolean;
-  feed: "ledger" | "sql" | "probe" | "none";
-  source: "database" | "instance-memory" | "probe" | "none";
+  feed: "ledger" | "sql" | "probe" | "api" | "none";
+  source: "database" | "instance-memory" | "probe" | "api" | "none";
   limitSource: string;
   note: string | null;
 };
@@ -58,17 +58,24 @@ type Board = {
   services: CloudRow[];
 };
 
-const FEED_LABEL: Record<CloudRow["feed"], string> = { ledger: "Credit ledger", sql: "SQL read", probe: "Live probe", none: "No feed" };
+const FEED_LABEL: Record<CloudRow["feed"], string> = {
+  ledger: "Credit ledger",
+  sql: "SQL read",
+  probe: "Live probe",
+  api: "REST API",
+  none: "No feed",
+};
 
 /** Exhausted beats warn beats measured; a ceiling with no counter is its own state. */
 export function rowState(row: CloudRow): RowState {
   if (row.exhausted) return "exhausted";
   if (row.warn) return "warn";
   if (row.percent !== null) return "ok";
-  // A probe row without a reading means the live check failed at page load - the
-  // wire is dark, which has to look different from a metric nobody watches. It
-  // stays amber (one reading, not an incident) and the note carries the reason.
-  if (row.feed === "probe" && row.used === null) return "unreachable";
+  // A live source without a reading means the check itself failed right now - the
+  // probe or the provider API went dark - which has to look different from a metric
+  // nobody watches. It stays amber (one reading, not an incident) and the note
+  // carries the reason.
+  if ((row.feed === "probe" || row.feed === "api") && row.used === null) return "unreachable";
   return row.limit === null ? "noquota" : "nofeed";
 }
 
@@ -76,7 +83,7 @@ const STATE_LABEL: Record<RowState, string> = {
   ok: "Healthy",
   warn: "At 75%",
   exhausted: "Exhausted",
-  unreachable: "Probe failed",
+  unreachable: "Read failed",
   nofeed: "Not monitored",
   noquota: "No allowance",
 };

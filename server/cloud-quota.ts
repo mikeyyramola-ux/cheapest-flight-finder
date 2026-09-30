@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { bounded, loadQuotaStatus, QUOTA_WARN_PERCENT, type QuotaStatus } from "./quota";
 import { probeRenderEngine } from "./render-probe";
+import { measureVercelDeployments } from "./vercel-usage";
 
 /**
  * The quota board: every outside service Fareloop cannot run without, with the one
@@ -33,8 +34,8 @@ const GIB = 1024 ** 3;
 
 export type CloudCategory = "supplier" | "hosting" | "database" | "payments";
 /** How `used` is obtained: our own credit ledger, a SQL read, a live HTTP probe,
- *  or no feed at all. */
-export type CloudFeed = "ledger" | "sql" | "probe" | "none";
+ *  a provider's own REST API, or no feed at all. */
+export type CloudFeed = "ledger" | "sql" | "probe" | "api" | "none";
 export type CloudPeriod = "month" | "lifetime" | "day" | "standing" | null;
 
 export type CloudServiceRow = {
@@ -56,7 +57,7 @@ export type CloudServiceRow = {
   /** False while a supplier is deliberately out of the live chain (E14's meaning). */
   wired: boolean;
   feed: CloudFeed;
-  source: "database" | "instance-memory" | "probe" | "none";
+  source: "database" | "instance-memory" | "probe" | "api" | "none";
   /** The document or ledger the ceiling came from. Required: no unsourced limit. */
   limitSource: string;
   note: string | null;
@@ -92,8 +93,8 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     limit: 50_000_000,
     period: "month",
     feed: "none",
-    limitSource: "TiDB Cloud free-tier published quota - 50 million RU per month (docs.pingcap.com)",
-    note: "RU consumption is metered by TiDB Cloud and is not exposed through SQL, so this ceiling cannot be watched from in here. Reaching it denies new connections until the month rolls over.",
+    limitSource: "TiDB Cloud Starter free quota - 50 million RU per month per instance, first 5 instances (pingcap.com/tidb-cloud-starter-pricing-details, verified 2026-09-30)",
+    note: "Metered by TiDB Cloud and not exposed through SQL (checked against the current docs) - the viewers are the console's Usage This Month panel and the cluster Metrics page. The TiDB Cloud API's billing endpoint reads a month's bill but needs an API key this project does not hold, so no key = no reading. Reaching the quota throttles the instance (new connections denied) until the month rolls over.",
   },
   {
     key: "vercel-data-transfer",
@@ -104,8 +105,8 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     limit: 100,
     period: "month",
     feed: "none",
-    limitSource: "Vercel Hobby plan published limit - 100 GB per month (vercel.com/docs/limits)",
-    note: "Usage is reported in the Vercel dashboard behind an account token this project does not hold, so the figure is a ceiling, not a measurement.",
+    limitSource: "Vercel Hobby free allotment - first 100 GB Fast Data Transfer per month (vercel.com/docs/limits/fair-use-guidelines, typical monthly usage table, updated 2026-09-14)",
+    note: "The token is not the problem: Vercel's own usage API (/v1/usage) answered plan_upgrade_required when queried from this Hobby team (verified 2026-09-30), so reading Fast Data Transfer programmatically is a Pro/Enterprise feature. The only viewer at the $0 plan is the dashboard Usage page, and no number is claimed from in here.",
   },
   {
     key: "vercel-deployments",
@@ -115,9 +116,9 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     unit: "deploys",
     limit: 100,
     period: "day",
-    feed: "none",
-    limitSource: "Vercel Hobby plan published limit - 100 deployments per day (vercel.com/docs/limits)",
-    note: "Same missing feed as the row above: the limit is known, the running count is not.",
+    feed: "api",
+    limitSource: "Vercel Hobby plan published limit - 100 deployments created per day (vercel.com/docs/limits; rate limit: 100 per rolling 86400 s, verified 2026-09-30)",
+    note: "Counted live at page load from Vercel's own deployments API over the rolling 24-hour window that defines the limit, so this row means exactly what Vercel means by it. A failed read shows no number, never a zero.",
   },
   {
     key: "render-instance-hours",
@@ -129,7 +130,7 @@ export const CLOUD_SERVICE_DEFS: CloudServiceDef[] = [
     period: "month",
     feed: "none",
     limitSource: "Render free plan published ceiling - 750 Free instance hours per workspace per calendar month; exhaustion suspends every free web service until next month (render.com/docs/free)",
-    note: "GitHub Actions pings /api/cloud-tick every 30 minutes (quota-aware relay, ping.yml :13/:43) and our cloud mirror reads the engine every 15 minutes, so it runs near-continuous: an always-awake month spends 720-744 of the 750 hours (24 h x 30/31 days) - little headroom. No Render API key is held here, so the running count is not readable from in here and no number is claimed for it.",
+    note: "GitHub Actions pings /api/cloud-tick every 30 minutes (quota-aware relay, ping.yml :13/:43) and our cloud mirror reads the engine every 15 minutes, so it runs near-continuous: an always-awake month spends 720-744 of the 750 hours (24 h x 30/31 days) - little headroom. No Render API key is held here, and Render's public API spec carries no billing or usage endpoint at all (verified 2026-09-30 - metrics only), so the only viewer of this counter is Render's billing page and no number is claimed from in here.",
   },
   {
     key: "render-engine",
@@ -238,14 +239,18 @@ async function measureStorageBytes(): Promise<{ used: number | null; source: Clo
  * intact. An ops report that fails entirely is one nobody looks at twice.
  */
 export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServiceRow[]> {
-  // The three sources are independent by design and are now read in parallel: a
+  // The four sources are independent by design and are read in parallel: a
   // board built from sequential timeouts could stack bounded(4 s) + bounded(4 s)
   // + probe(6 s) past the serverless function limit and fail the whole request,
   // which is the exact "wire dies, board dies" outcome the board exists to avoid.
-  const [suppliers, storage, probe] = await Promise.all([
+  const [suppliers, storage, probe, deployments] = await Promise.all([
     loadQuotaStatus(at).catch(() => [] as QuotaStatus[]),
     measureStorageBytes(),
     probeRenderEngine(at),
+    measureVercelDeployments(at).catch(() => ({
+      used: null,
+      reason: "Vercel deployments read failed - the count is withheld, never assumed.",
+    })),
   ]);
 
   const rows: CloudServiceRow[] = suppliers.map(status => {
@@ -287,6 +292,18 @@ export async function loadCloudBoard(at: Date = new Date()): Promise<CloudServic
       rows.push(
         buildCloudRow(def, probe.used, probe.used !== null ? "probe" : "none", {
           note: probe.reason ?? def.note,
+        }),
+      );
+      continue;
+    }
+    if (def.key === "vercel-deployments") {
+      // Same honesty shape as the probe: a successful read carries the count, a
+      // failed one carries the reason and no number at all - never a zero that
+      // would read as "nothing deployed today" when the API was the thing that
+      // failed.
+      rows.push(
+        buildCloudRow(def, deployments.used, deployments.used !== null ? "api" : "none", {
+          note: deployments.reason ?? def.note,
         }),
       );
       continue;

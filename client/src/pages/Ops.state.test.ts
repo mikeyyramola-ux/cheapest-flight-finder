@@ -37,8 +37,14 @@ function row(overrides: Partial<CloudRow>): CloudRow {
 }
 
 describe("row state vocabulary", () => {
-  it("calls a probe that failed 'Probe failed', not 'Not monitored'", () => {
+  it("calls a live read that failed 'Read failed', not 'Not monitored'", () => {
     expect(rowState(row({ feed: "probe", used: null, percent: null }))).toBe("unreachable");
+  });
+
+  it("calls a provider API read that failed the same dark state as a failed probe", () => {
+    // The deployments row is a REST API feed: when Vercel does not answer, the row
+    // must show a failed read, not the grey of a metric nobody keeps.
+    expect(rowState(row({ feed: "api", used: null, percent: null }))).toBe("unreachable");
   });
 
   it("calls a probe that answered healthy while it is young", () => {
