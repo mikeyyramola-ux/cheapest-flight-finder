@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { collectCloudBoardAlerts, sendOwnerAlerts, type OwnerAlert } from "./board-escalation";
 import { liveBudgetStatus, scanTrackedRoutes, sendPriceDropNotification } from "./flight-data";
 import { loadQuotaStatus, QUOTA_WARN_PERCENT } from "./quota";
 import { checkPartnerEndpoints } from "./partner-health";
@@ -21,6 +22,7 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     return res.status(403).json({ error: "cron-secret-required" });
   }
   try {
+    const at = new Date();
     const result = await scanTrackedRoutes();
     const notifications = await Promise.all(result.alerts.filter(item => item.notified).map(item => sendPriceDropNotification(item.route, item.dropPercent)));
     const delivered = notifications.filter(item => item.delivered).length;
@@ -31,7 +33,10 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
     // must never be able to look like a healthy run.
     const budget = liveBudgetStatus();
     const quotas = await loadQuotaStatus();
-    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6" | "E13" | "E14"; detail: string }> = [];
+    const escalations: Array<{ level: "owner"; code: "E3" | "E5" | "E6" | "E13" | "E14" | "E16" | "E17" | "E18"; detail: string }> = [];
+    /** Quota conditions handed to Telegram this run. E14 words are built once, below,
+     *  and reused verbatim so the JSON record and the chat cannot disagree. */
+    const ownerAlerts: OwnerAlert[] = [];
     if (budget.alert.exhausted) {
       escalations.push({ level: "owner", code: "E3", detail: `alert credit pool exhausted (used ${budget.alert.used}/${budget.alert.limit}); free searches may be starving subscriber alerts` });
     }
@@ -58,12 +63,47 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       if (!quota.warn) continue;
       const state = quota.exhausted ? "EXHAUSTED" : `${quota.percent}% used`;
       const refill = quota.period === "lifetime" ? "one-time allowance - it does not refill" : `resets ${quota.period}`;
+      const detail = `${quota.label} quota ${state} (${quota.used}/${quota.limit}, ${refill}); ${quota.source === "database" ? "month-wide count" : "instance view only - storage unreachable"} - top up or cut polling before it hits 100%`;
       escalations.push({
         level: "owner",
         code: "E14",
-        detail: `${quota.label} quota ${state} (${quota.used}/${quota.limit}, ${refill}); ${quota.source === "database" ? "month-wide count" : "instance view only - storage unreachable"} - top up or cut polling before it hits 100%`,
+        detail,
       });
+      // Same condition, same words, second channel: the record above and the Telegram
+      // bullet are this one string, so they can never drift apart.
+      ownerAlerts.push({ code: "E14", key: quota.key, percent: quota.percent, line: detail });
     }
+
+    // E16/E17/E18: the quota board's own warnings, evaluated here because a row nobody
+    // opens cannot warn anybody (owner order, 2026-09-30). The collection never throws:
+    // a board that cannot be read comes back as a failure string and is escalated as
+    // E16, so this check can never look green by being absent (E16's rule).
+    const boardAlerts = await collectCloudBoardAlerts(at);
+    for (const alert of boardAlerts.alerts) {
+      // Both channels, same object: the JSON record and the Telegram bullet are the
+      // same `line`, so they cannot drift, and an alert cannot be recorded but unsent.
+      escalations.push({ level: "owner", code: alert.code, detail: alert.line });
+      ownerAlerts.push(alert);
+    }
+    if (boardAlerts.failure) {
+      const failure: OwnerAlert = {
+        code: "E16",
+        key: "board-alert-check",
+        line: `quota board could not be read for alerting: ${boardAlerts.failure} - E17/E18 were not evaluated this run`,
+      };
+      ownerAlerts.push(failure);
+      escalations.push({ level: "owner", code: "E16", detail: failure.line });
+    }
+
+    // One message per code, deduplicated against what was already sent (see
+    // board-escalation.ts). Every outcome is returned for the record below - a send
+    // Telegram refused must be as visible as one that went out.
+    const alertDelivery = await sendOwnerAlerts(ownerAlerts, at);
+    console.log(
+      `[cron] quota alert check ${boardAlerts.failure ? `FAILED: ${boardAlerts.failure}` : "ok"}; ${
+        alertDelivery.length ? alertDelivery.map(item => `${item.code} ${item.action} (${item.entries})`).join(", ") : "no quota condition firing"
+      }`,
+    );
 
     return res.json({
       ok: true,
@@ -101,6 +141,12 @@ export async function scanFlightDealsHandler(req: Request, res: Response) {
       })),
       quotaWarnPercent: QUOTA_WARN_PERCENT,
       escalations,
+      // The quota board's alert pass, reported even when nothing fired: `boardAlertCheck`
+      // proves the check ran, so an empty `ownerAlerts` array can never be mistaken for
+      // "the check was skipped" - absence is not all-clear (E15's rule, same as the
+      // escalations field above).
+      boardAlertCheck: { ok: !boardAlerts.failure, error: boardAlerts.failure },
+      ownerAlerts: alertDelivery,
       failures: notifications.filter(item => !item.delivered).map(item => ({ channel: item.channel, reason: item.reason })),
     });
   } catch (error) {

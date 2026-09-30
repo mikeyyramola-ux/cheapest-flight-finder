@@ -1,5 +1,6 @@
 import { loadLiveHistory, loadPersistedRoutes, persistRoute, recordPricePoint, removePersistedRoute, type PersistableRoute } from "./price-store";
 import { chargeQuota } from "./quota";
+import { deliverTelegram, type NotificationResult } from "./telegram";
 import type { PriceHistoryRow, TrackedRouteRow } from "../drizzle/schema";
 
 export type Cabin = "Economy" | "Premium economy" | "Business";
@@ -817,37 +818,15 @@ export async function scanTrackedRoutes() {
   return { checkedAt: new Date().toISOString(), routesTotal: routes.length, liveRefreshed, liveProviders, suppliers: Array.from(suppliersServed), observationsStored, hydrated, alerts };
 }
 
-export interface NotificationResult {
-  channel: "Telegram" | "WhatsApp";
-  message: string;
-  /** True ONLY when the provider actually accepted the message. It is never
-   *  inferred from credentials being present - a configured-but-broken bot must
-   *  not be able to report success. */
-  delivered: boolean;
-  reason: string;
-}
+// Telegram delivery lives in ./telegram so that this alert and the quota-board
+// escalations (board-escalation.ts) share one sender. Re-exported here because this
+// file has always been where callers look for the type.
+export type { NotificationResult } from "./telegram";
 
 export async function sendPriceDropNotification(route: TrackedRoute, dropPercent: number): Promise<NotificationResult> {
   const message = `✈️ Price drop on ${route.origin} → ${route.destination}: $${route.currentPrice} (${dropPercent}% below average). Your target is $${route.targetPrice}.`;
 
-  if (route.alertChannel === "Telegram") {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!token || !chatId) return { channel: "Telegram", message, delivered: false, reason: "Telegram credentials not configured" };
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: message }),
-      });
-      if (!res.ok) return { channel: "Telegram", message, delivered: false, reason: `Telegram API responded ${res.status}` };
-      const body = (await res.json()) as { ok?: boolean; description?: string };
-      if (!body.ok) return { channel: "Telegram", message, delivered: false, reason: body.description || "Telegram rejected the message" };
-      return { channel: "Telegram", message, delivered: true, reason: "accepted by Telegram" };
-    } catch (error) {
-      return { channel: "Telegram", message, delivered: false, reason: error instanceof Error ? error.message : String(error) };
-    }
-  }
+  if (route.alertChannel === "Telegram") return deliverTelegram(message);
 
   // Twilio/WhatsApp is still a placeholder. Say so instead of reporting a delivery
   // that never happened - the previous version returned delivered:true here.

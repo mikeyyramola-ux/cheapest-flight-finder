@@ -6,8 +6,8 @@ import { bounded } from "./quota";
  * Observations: numbers a provider meters on our behalf but exposes through no free
  * API, recorded where the quota board can read them.
  *
- * Two different shapes live in the one small table, and the distinction is what keeps
- * both rows honest:
+ * Three different shapes live in the one small table, and the distinction is what
+ * keeps every row honest:
  *
  *  - TiDB's Request Units are shown only in TiDB Cloud's own console panel. Probed
  *    exhaustively on 2026-09-30 with an org API key minted for the purpose: the
@@ -23,6 +23,14 @@ import { bounded } from "./quota";
  *    measured so far; the next read starts its integration from the checkpoint. The
  *    stored value is a total-to-a-moment (never an increment), so two readers racing
  *    write the same amount and no hour can be double-counted.
+ *
+ *  - Alert dedup state: rows whose metric_key starts with `alert:` remember what the
+ *    cron last pushed to Telegram for one escalation code (the fingerprint of what
+ *    fired in `detail`, the send moment in `used`/`observed_at_unix`), so an
+ *    unchanged condition is reported once instead of every day. Written and read only
+ *    by board-escalation.ts, which documents the keys; the quota board never reads
+ *    them, because it only ever asks for its own metric keys - and `used` on such a
+ *    row is a send timestamp, never a quota value.
  *
  * Failure contract, same as every other board source: a missing table, a dead
  * database, or a stale reading come back as no number with a reason. An observation

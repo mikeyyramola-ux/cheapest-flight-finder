@@ -13,6 +13,15 @@ import { scanFlightDealsHandler } from "./scheduled";
 
 const SECRET = "escalation-test-secret";
 
+// The cron now reads the quota board for E16/E17/E18, which would otherwise pull live
+// Render/Vercel endpoints and the observation store into this suite - a test run must
+// never write production state. Mocked to "nothing fired" so these tests stay about
+// E3/E5/E6; the board's own alerts are covered in escalation.e17.test.ts.
+vi.mock("./board-escalation", () => ({
+  collectCloudBoardAlerts: vi.fn(async () => ({ alerts: [], failure: null })),
+  sendOwnerAlerts: vi.fn(async () => []),
+}));
+
 function fakeReq() {
   return { get: () => `Bearer ${SECRET}` } as unknown as Request;
 }
