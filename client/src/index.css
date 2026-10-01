@@ -5,7 +5,7 @@
 :root { --radius: .8rem; --primary: #b9ff98; --primary-foreground: #10210d; --background: #0d0e13; --foreground: #f7f7f3; --card: #161820; --card-foreground: #f7f7f3; --popover: #161820; --popover-foreground: #f7f7f3; --muted: #1d2029; --muted-foreground: #989ba7; --border: rgba(255,255,255,.09); --input: rgba(255,255,255,.1); --ring: #b9ff98; }
 * { box-sizing: border-box; }
 html { background: #0d0e13; }
-body { margin: 0; background: #0d0e13; color: #f7f7f3; font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: #0d0e13; color: #f7f7f3; font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; font-size: 16px; }
 button, input, select { font: inherit; }
 button, a, select { cursor: pointer; }
 button, a, select { -webkit-tap-highlight-color: transparent; }
