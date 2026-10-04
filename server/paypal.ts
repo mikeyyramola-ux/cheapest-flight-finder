@@ -1,4 +1,5 @@
-import { updateUserPayPalSubscription } from "./db";
+import { getUserBySubscriptionId, updateUserPayPalSubscription } from "./db";
+import { deliverTelegram } from "./telegram";
 
 export const premiumPlanPayPal = {
   name: "Premium Member (PayPal)",
@@ -176,5 +177,49 @@ export async function handlePayPalWebhook(
     return { verified: true, type: event.event_type };
   }
 
-  return { verified: true, type: event.event_type };
+  // Payment failed. PayPal retries before it suspends, so the subscription is not
+  // dead yet - but access must stop counting as paid from the first failure, not
+  // from whenever the retries run out. Without this a declined payment leaves the
+  // customer on `active` and silent.
+  if (event.event_type === "BILLING.SUBSCRIPTION.PAYMENT.FAILED") {
+    const subscription = event.resource;
+    const subscriptionId = String(subscription.id ?? "");
+    const found = await getUserBySubscriptionId("paypal", subscriptionId);
+    const customId = Number(subscription.custom_id);
+    const userId = found?.id ?? (Number.isInteger(customId) && customId > 0 ? customId : undefined);
+    if (userId) {
+      await updateUserPayPalSubscription({ userId, subscriptionId, status: "past_due" });
+      console.warn("[PayPal] Payment failed", { subscriptionId, userId });
+    } else {
+      console.warn("[PayPal] Payment failed but no user matched", { subscriptionId });
+    }
+    const notice = await deliverTelegram(`Fareloop: PayPal payment FAILED (sub ${subscriptionId || "unknown"}) - access set to past_due`);
+    if (!notice.delivered) console.warn("[PayPal] Failure alert not delivered:", notice.reason);
+    return { verified: true, type: event.event_type };
+  }
+
+  // Refund. The money went back, so premium access goes with it. The webhook gives a
+  // billing agreement, not a user, which is why the lookup by subscription id exists.
+  if (event.event_type === "PAYMENT.SALE.REFUNDED" || event.event_type === "PAYMENT.REFUNDED") {
+    const resource = event.resource as { billing_agreement_id?: string; subscription_id?: string; custom_id?: string };
+    const subscriptionId = String(resource.billing_agreement_id ?? resource.subscription_id ?? "");
+    const found = await getUserBySubscriptionId("paypal", subscriptionId);
+    const customId = Number(resource.custom_id);
+    const userId = found?.id ?? (Number.isInteger(customId) && customId > 0 ? customId : undefined);
+    if (userId) {
+      await updateUserPayPalSubscription({ userId, subscriptionId, status: "canceled" });
+      console.warn("[PayPal] Refund processed", { subscriptionId, userId });
+    } else {
+      console.warn("[PayPal] Refund could not be attributed to a user", { subscriptionId });
+    }
+    const notice = await deliverTelegram(`Fareloop: PayPal REFUND issued (sub ${subscriptionId || "unknown"}) - access removed`);
+    if (!notice.delivered) console.warn("[PayPal] Refund alert not delivered:", notice.reason);
+    return { verified: true, type: event.event_type };
+  }
+
+  // Everything else still gets a 200 - a non-2xx makes PayPal redeliver forever -
+  // but NEVER silently. An unhandled billing event has to be visible in the log,
+  // because swallowed events are how a refund stayed invisible in the first place.
+  console.warn("[PayPal] UNHANDLED webhook event", event.event_type);
+  return { verified: true, type: event.event_type, unhandled: true };
 }

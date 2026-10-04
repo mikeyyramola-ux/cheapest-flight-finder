@@ -89,6 +89,34 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+/**
+ * Resolve a user from a payment-provider subscription id.
+ *
+ * Refund and failed-payment webhooks hand us a charge or an invoice, not a user id -
+ * the only durable handle they carry is the subscription. Without this, a refund
+ * cannot be attributed to anyone and premium access would survive it.
+ *
+ * Reads stripeSubscriptionId / paypalSubscriptionId, both of which already exist on
+ * `users`. This is a read against existing columns: no schema change, no migration.
+ */
+export async function getUserBySubscriptionId(
+  provider: "stripe" | "paypal",
+  subscriptionId: string | null | undefined
+) {
+  if (!subscriptionId) return undefined;
+
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user by subscription: database not available");
+    return undefined;
+  }
+
+  const column = provider === "stripe" ? users.stripeSubscriptionId : users.paypalSubscriptionId;
+  const result = await db.select().from(users).where(eq(column, subscriptionId)).limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
 export async function updateUserStripeSubscription(input: {
   userId: number;
   customerId?: string | null;
