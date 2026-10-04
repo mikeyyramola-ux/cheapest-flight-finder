@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildQuotaStatus } from "./quota";
+import { buildQuotaStatus, scrappaCombined } from "./quota";
 
 /**
  * E14 used to only WARN at 75%, so the last quarter of the shared Scrappa pool stayed
@@ -40,7 +40,12 @@ const scrappaReply = () => ({
 
 /** Smallest `used` that trips warn, and the largest that does not. */
 function thresholds() {
-  const limit = buildQuotaStatus({ scrappa: 0 }, "database")[0].limit;
+  // PROPOSAL 20: the threshold is 75% of BOTH Scrappa pools, so it is derived from
+  // the same combined figure the breaker reads. Before CONFIRM 20 that is 500 and
+  // this behaves exactly as it always did; the moment the pack is activated it
+  // becomes 33,500 and the assertions follow automatically instead of silently
+  // pinning a 375-credit ceiling that no longer decides anything.
+  const limit = scrappaCombined(buildQuotaStatus({ scrappa: 0, "scrappa-pack": 0 }, "database")).limit;
   const atWarn = Math.ceil((limit * 75) / 100);
   return { justBelow: atWarn - 1, atWarn, limit };
 }
@@ -152,5 +157,63 @@ describe("E14 circuit-breaker (PROPOSAL 19)", () => {
 
     expect(result.source).toBe("live");
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("judges both Scrappa pools as one balance (PROPOSAL 20)", async () => {
+    const { searchFlights, resetSearchSpendMemo } = await fresh();
+    // Import AFTER fresh() so this is the same quota module instance flight-data
+    // holds: vi.mock spreads the actual namespace, so SCRAPPA_PACK is shared by
+    // reference and mutating it here changes what buildQuotaStatus reports to it.
+    const quota = await import("./quota");
+    quota.SCRAPPA_PACK.limit = 33_000;
+    quota.SCRAPPA_PACK.issuedAt = "2026-10-05";
+
+    try {
+      // The free pool on its own is spent out, so its row says 100% and warns.
+      // The pack is untouched: the combined balance is 500 of 33,500 - 1.5%, nowhere
+      // near 75%. If the breaker still read the free row alone it would block here;
+      // reading the total is the whole point of this proposal.
+      quotaMock.mockResolvedValue(
+        quota.buildQuotaStatus({ scrappa: 500, "scrappa-pack": 0 }, "database"),
+      );
+      vi.stubEnv("SCRAPPA_API_KEY", KEY);
+      const fetchMock = vi.fn(async () => scrappaReply());
+      vi.stubGlobal("fetch", fetchMock);
+
+      resetSearchSpendMemo();
+      const result = await searchFlights(searchInput);
+
+      expect(result.source).toBe("live");
+      expect(fetchMock).toHaveBeenCalled();
+    } finally {
+      quota.SCRAPPA_PACK.limit = 0;
+      quota.SCRAPPA_PACK.issuedAt = "";
+    }
+  });
+
+  it("still blocks at 75% of the combined total once the pack is bought", async () => {
+    const { searchFlights, resetSearchSpendMemo } = await fresh();
+    const quota = await import("./quota");
+    quota.SCRAPPA_PACK.limit = 33_000;
+    quota.SCRAPPA_PACK.issuedAt = "2026-10-05";
+
+    try {
+      // 25,125 of 33,500 is exactly 75%: public search must stop.
+      quotaMock.mockResolvedValue(
+        quota.buildQuotaStatus({ scrappa: 500, "scrappa-pack": 24_625 }, "database"),
+      );
+      vi.stubEnv("SCRAPPA_API_KEY", KEY);
+      const fetchMock = vi.fn(async () => scrappaReply());
+      vi.stubGlobal("fetch", fetchMock);
+
+      resetSearchSpendMemo();
+      const result = await searchFlights(searchInput);
+
+      expect(result.source).not.toBe("live");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      quota.SCRAPPA_PACK.limit = 0;
+      quota.SCRAPPA_PACK.issuedAt = "";
+    }
   });
 });

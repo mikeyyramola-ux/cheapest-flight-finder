@@ -49,14 +49,20 @@ describe("quota ledger", () => {
 
   it("reports all three suppliers, marking Bright Data as not wired in", () => {
     const status = buildQuotaStatus({}, "database");
-    expect(status.map(quota => quota.key)).toEqual(["scrappa", "ignav", "brightdata"]);
+    expect(status.map(quota => quota.key)).toEqual(["scrappa", "scrappa-pack", "ignav", "brightdata"]);
     expect(status.find(quota => quota.key === "brightdata")?.wired).toBe(false);
     expect(status.find(quota => quota.key === "scrappa")?.wired).toBe(true);
+    // PROPOSAL 20: the pack is a fourth row now, and until it is purchased it must
+    // report itself as worth nothing rather than as an empty-but-live pool.
+    const pack = status.find(quota => quota.key === "scrappa-pack");
+    expect(pack?.limit).toBe(0);
+    expect(pack?.exhausted).toBe(false);
+    expect(pack?.warn).toBe(false);
   });
 
   it("gives each supplier its published allowance", () => {
     const limits = Object.fromEntries(QUOTA_PROVIDERS.map(provider => [provider.key, provider.limit]));
-    expect(limits).toEqual({ scrappa: 500, ignav: 1000, brightdata: 5000 });
+    expect(limits).toEqual({ scrappa: 500, "scrappa-pack": 0, ignav: 1000, brightdata: 5000 });
   });
 
   it("buckets monthly pools by UTC month and one-time pools under lifetime", () => {

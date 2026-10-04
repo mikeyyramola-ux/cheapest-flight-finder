@@ -28,22 +28,46 @@ import { getDb } from "./db";
 
 export const QUOTA_WARN_PERCENT = 75;
 
+/**
+ * PROPOSAL 20: the $10 Scrappa Starter pack - bought once, 33,000 credits, valid 12
+ * months (scrappa.co/pricing), no auto-renew.
+ *
+ * It sits UNPURCHASED until the owner says `CONFIRM 20`: `limit` 0 and `issuedAt`
+ * empty. Those two fields are the entire activation step, which is the point - a
+ * month rolling over cannot grant this pack, because a rollover moves the free pool
+ * to a new period key and never touches anything here.
+ */
+export const SCRAPPA_PACK = {
+  /** 0 while unpurchased. Becomes 33_000 on CONFIRM 20. */
+  limit: 0,
+  /** "" while unpurchased. Becomes "YYYY-MM-DD" on CONFIRM 20. */
+  issuedAt: "",
+  /** Months the pack stays valid from its issue date. */
+  validMonths: 12,
+};
+
 export type QuotaProvider = {
   /** Storage key, stable across renames of the display label. */
   key: string;
   label: string;
   limit: number;
-  /** "month" allowances reset every UTC month; "lifetime" allowances never reset. */
-  period: "month" | "lifetime";
+  /** "month" allowances reset every UTC month; "lifetime" allowances never reset;
+   *  "pack" allowances run from their issue date and never reset. */
+  period: "month" | "lifetime" | "pack";
   /** False while a supplier is deliberately out of the live chain. */
   wired: boolean;
 };
 
 export const QUOTA_PROVIDERS: QuotaProvider[] = [
   { key: "scrappa", label: "Scrappa (Google Flights)", limit: 500, period: "month", wired: true },
+  { key: "scrappa-pack", label: "Scrappa pack", limit: SCRAPPA_PACK.limit, period: "pack", wired: true },
   { key: "ignav", label: "Ignav", limit: 1000, period: "lifetime", wired: true },
   { key: "brightdata", label: "Bright Data", limit: 5000, period: "month", wired: false },
 ];
+
+/** The two rows that are, in reality, one Scrappa balance. Nothing but the breaker
+ *  and the board's total should ever read one of them without the other. */
+export const SCRAPPA_POOL_KEYS = ["scrappa", "scrappa-pack"];
 
 /** Supplier name as stamped onto an offer -> quota key. Unknown suppliers are never
  *  guessed into a bucket: an unmapped supplier simply is not counted. */
@@ -57,7 +81,44 @@ const QUOTA_KEY_BY_SUPPLIER: Record<string, string> = {
  *  supplier's own reset is not going to be counted from the customer's timezone. */
 export function quotaPeriodKey(provider: QuotaProvider, at: Date = new Date()): string {
   if (provider.period === "lifetime") return "lifetime";
+  if (provider.period === "pack") return packPeriodKey();
   return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** PROPOSAL 20: the pack's period key is pinned to the month it was BOUGHT, never to
+ *  `at`. That one line is why a month rollover cannot re-grant it - on the 1st the
+ *  free row moves to `2026-11` and starts empty, while the pack row stays on
+ *  `pack-2026-10` and keeps every credit already spent against it. */
+function packPeriodKey(): string {
+  if (!SCRAPPA_PACK.issuedAt) return "pack-none"; // unpurchased: nothing to bucket
+  const issued = new Date(`${SCRAPPA_PACK.issuedAt}T00:00:00Z`);
+  if (Number.isNaN(issued.getTime())) return "pack-none";
+  return `pack-${issued.getUTCFullYear()}-${String(issued.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * PROPOSAL 20: what a pool is worth RIGHT NOW.
+ *
+ * A monthly pool is worth its limit; a pack is worth its limit only while it is
+ * unexpired, and nothing at all before purchase or after expiry. Expiry therefore
+ * falls out of every total with no expiry column, no cron and no migration - the
+ * number becomes 0 and stops being counted, which is also exactly what the 75%
+ * breaker should see.
+ */
+export function availableLimit(provider: QuotaProvider, at: Date = new Date()): number {
+  if (provider.period !== "pack") return provider.limit;
+  // SCRAPPA_PACK.limit is the authority for packs rather than the row's own limit
+  // field, so CONFIRM 20 is a one-field edit that reaches every consumer at once.
+  const nominal = SCRAPPA_PACK.limit;
+  if (!nominal || !SCRAPPA_PACK.issuedAt) return 0;
+  const issued = new Date(`${SCRAPPA_PACK.issuedAt}T00:00:00Z`);
+  if (Number.isNaN(issued.getTime())) return 0;
+  const expiry = Date.UTC(
+    issued.getUTCFullYear(),
+    issued.getUTCMonth() + SCRAPPA_PACK.validMonths,
+    issued.getUTCDate(),
+  );
+  return at.getTime() >= expiry ? 0 : nominal;
 }
 
 export type QuotaStatus = {
@@ -90,25 +151,60 @@ export function buildQuotaStatus(
 ): QuotaStatus[] {
   return QUOTA_PROVIDERS.map(provider => {
     const used = Math.max(0, usedByKey[provider.key] ?? 0);
+    // PROPOSAL 20: the LIMIT comes from availableLimit, so an unpurchased or expired
+    // pack reports itself as worth nothing rather than as its nominal 33,000.
+    const limit = availableLimit(provider, at);
     // Percent is floored and the threshold is decided by exact integer arithmetic,
     // never by the rounded display value: 374/500 is 74.8%, which ROUNDS to 75 and
     // would have raised the flag one credit early - and worse, would have made the
     // reported "75%" and the `warn` flag disagree with each other.
-    const percent = provider.limit > 0 ? Math.floor((used / provider.limit) * 100) : 0;
-    const reachedThreshold = provider.limit > 0 && used * 100 >= provider.limit * QUOTA_WARN_PERCENT;
+    const percent = limit > 0 ? Math.floor((used / limit) * 100) : 0;
+    const reachedThreshold = limit > 0 && used * 100 >= limit * QUOTA_WARN_PERCENT;
     return {
       key: provider.key,
       label: provider.label,
       used,
-      limit: provider.limit,
+      limit,
       percent,
       period: quotaPeriodKey(provider, at),
       warn: reachedThreshold,
-      exhausted: used >= provider.limit,
+      // A pool worth 0 is not empty, it is not in play. Reporting an unpurchased pack
+      // as `exhausted` would raise a permanent red flag that can never be cleared and
+      // would bury the one genuine "this pool ran out" warning underneath it.
+      exhausted: limit > 0 && used >= limit,
       wired: provider.wired,
       source: sourceByKey[provider.key] ?? source,
     };
   });
+}
+
+/**
+ * PROPOSAL 20: the two Scrappa rows read as ONE pool, because that is what they are.
+ *
+ * The free allowance refills monthly and the pack does not, so neither row alone is
+ * the balance that empties - only their sum is. This is the single function the
+ * spend breaker consults, so the number that blocks a search and the number the
+ * board reports are produced by the same arithmetic and cannot drift apart.
+ */
+export function scrappaCombined(rows: QuotaStatus[]): {
+  used: number;
+  limit: number;
+  percent: number;
+  warn: boolean;
+  exhausted: boolean;
+} {
+  const pools = rows.filter(row => SCRAPPA_POOL_KEYS.includes(row.key));
+  const used = pools.reduce((sum, row) => sum + row.used, 0);
+  // Each row already carries its *available* limit, so an expired pack contributes 0
+  // here without this function needing to know what an expiry date is.
+  const limit = pools.reduce((sum, row) => sum + row.limit, 0);
+  return {
+    used,
+    limit,
+    percent: limit > 0 ? Math.floor((used / limit) * 100) : 0,
+    warn: limit > 0 && used * 100 >= limit * QUOTA_WARN_PERCENT,
+    exhausted: limit > 0 && used >= limit,
+  };
 }
 
 // Per-instance fallback. Serverless memory is not shared, so this alone can only ever
@@ -150,12 +246,34 @@ function memoryKey(provider: QuotaProvider, at: Date = new Date()) {
   return `${provider.key}|${quotaPeriodKey(provider, at)}`;
 }
 
+/**
+ * PROPOSAL 20: which of the two Scrappa pools absorbs this credit.
+ *
+ * Free first. The free pool refills next month and the pack does not, so spending
+ * the pack early would burn the one allowance that carries an expiry date.
+ *
+ * The decision reads only the in-memory counter, costing no extra database round
+ * trip - and it does not need one: because the breaker SUMS both pools, a credit
+ * filed on the wrong side still counts identically in the total. Routing decides
+ * which row DISPLAYS a credit, never WHETHER it is counted.
+ */
+function pickPool(supplierKey: string): QuotaProvider | undefined {
+  const free = QUOTA_PROVIDERS.find(item => item.key === supplierKey);
+  if (!free) return undefined;
+  const pack = QUOTA_PROVIDERS.find(item => item.key === `${supplierKey}-pack`);
+  // No pack, or one not yet purchased / already expired: there is nowhere to spill
+  // to, so every credit lands on the free pool as it always did.
+  if (!pack || availableLimit(pack) <= 0) return free;
+  const spentThisMonth = memoryUsed.get(memoryKey(free)) ?? 0;
+  return spentThisMonth >= free.limit ? pack : free;
+}
+
 /** Records credits actually billed for a supplier. Called at the point a supplier
  *  answers with fares - never on a failure, because a failed request is not billed. */
 export async function chargeQuota(supplierName: string, credits = 1): Promise<void> {
   const key = QUOTA_KEY_BY_SUPPLIER[supplierName];
   if (!key) return; // unmapped supplier: count nothing rather than something wrong
-  const provider = QUOTA_PROVIDERS.find(item => item.key === key);
+  const provider = pickPool(key);
   if (!provider) return;
 
   const period = quotaPeriodKey(provider);
@@ -164,14 +282,15 @@ export async function chargeQuota(supplierName: string, credits = 1): Promise<vo
   try {
     const db = await getDb();
     if (!db) return;
+    const limit = availableLimit(provider);
     await bounded(() =>
       db
         .insert(creditUsage)
-        .values({ provider: key, period, used: credits, creditLimit: provider.limit })
+        .values({ provider: provider.key, period, used: credits, creditLimit: limit })
         .onDuplicateKeyUpdate({
           set: {
             used: sql`${creditUsage.used} + ${credits}`,
-            creditLimit: provider.limit,
+            creditLimit: limit,
           },
         }),
     );

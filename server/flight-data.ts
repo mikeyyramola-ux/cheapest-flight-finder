@@ -1,5 +1,5 @@
 import { loadLiveHistory, loadPersistedRoutes, persistRoute, recordPricePoint, removePersistedRoute, type PersistableRoute } from "./price-store";
-import { chargeQuota, loadQuotaStatus } from "./quota";
+import { chargeQuota, loadQuotaStatus, scrappaCombined } from "./quota";
 import { httpReason, recordFallThrough, recordProviderCall, thrownReason, type ProviderCall } from "./provider-obs";
 import { deliverTelegram, type NotificationResult } from "./telegram";
 import type { PriceHistoryRow, TrackedRouteRow } from "../drizzle/schema";
@@ -407,11 +407,13 @@ async function searchSpendAllowed(): Promise<boolean> {
   }
   let blocked = false;
   try {
-    // `warn` is already `used * 100 >= limit * QUOTA_WARN_PERCENT` (quota.ts:98), so
-    // the 75% boundary uses the same integer arithmetic as E14 itself rather than a
-    // second threshold that could drift away from the first.
-    const scrappa = (await loadQuotaStatus()).find(row => row.key === "scrappa");
-    blocked = Boolean(scrappa?.warn);
+    // PROPOSAL 20: judge both Scrappa pools as ONE ceiling, because that is what
+    // actually empties - free refills monthly, the pack expires 12 months after it
+    // is bought, and neither row alone is the balance that runs out. `scrappaCombined`
+    // uses the same integer arithmetic E14 does, so the 75% line the breaker enforces
+    // and the 75% line the board reports are produced by one piece of code rather
+    // than two thresholds that could drift apart.
+    blocked = scrappaCombined(await loadQuotaStatus()).warn;
   } catch {
     blocked = false; // fail open: a quota read must never cost a customer a search
   }
