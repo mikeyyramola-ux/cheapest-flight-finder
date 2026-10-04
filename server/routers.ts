@@ -3,7 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, rateLimited, router } from "./_core/trpc";
+import { DAILY_SEARCH_LIMIT } from "./_core/rate-limit";
 import { addTrackedRoute, ensureHistoryLoaded, ensureRoutesHydrated, getRouteHistory, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout, premiumPlan } from "./stripe";
 import { createPayPalCheckout, getPayPalSubscription, handlePayPalWebhook, premiumPlanPayPal } from "./paypal";
@@ -60,7 +61,13 @@ export const appRouter = router({
     }),
   }),
   flights: router({
-    search: publicProcedure.input(searchInput).mutation(async ({ input }) => searchFlights(input)),
+    // Variant B (owner decision, PROPOSAL 19): anonymous demo search stays alive, but
+    // bounded to 20/min and DAILY_SEARCH_LIMIT per day per IP so a bot cannot drain the
+    // shared Scrappa pool through the public path.
+    search: publicProcedure
+      .input(searchInput)
+      .use(rateLimited({ perDay: DAILY_SEARCH_LIMIT }))
+      .mutation(async ({ input }) => searchFlights(input)),
     history: publicProcedure.input(z.object({ origin: z.string(), destination: z.string() })).query(async ({ input }) => {
       // Awaited so the answer reflects stored readings when they exist. Skipping this
       // would serve the seed series simply because the read happened before the load.
@@ -80,6 +87,7 @@ export const appRouter = router({
     }),
     add: publicProcedure
       .input(z.object({ origin: z.string().min(3), destination: z.string().min(3), departDate: z.string(), returnDate: z.string(), targetPrice: z.number().min(1), alertChannel: z.enum(["Telegram", "WhatsApp"]), subscriptionId: z.string().max(64).optional() }))
+      .use(rateLimited())
       .mutation(async ({ input }) => {
         const { subscriptionId, ...route } = input;
         // Enforced here, not in the browser: the paywall is a server decision.
@@ -89,8 +97,24 @@ export const appRouter = router({
         const saved = await addTrackedRoute(route);
         return { route: saved, upgraded: true };
       }),
-    remove: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => ({ success: await removeTrackedRoute(input.id) })),
-    scan: publicProcedure.mutation(async () => {
+    remove: publicProcedure
+      .input(z.object({ id: z.string(), subscriptionId: z.string().max(64).optional() }))
+      .use(rateLimited())
+      .mutation(async ({ input }) => {
+        const { id, subscriptionId } = input;
+        // PROPOSAL 23: the same gate as `add`. Tracked routes are a subscriber
+        // feature, and without this any anonymous caller could empty a customer's
+        // watch list with a single request. The check runs BEFORE the delete, so a
+        // refusal never costs a row.
+        if (!(await isActiveSubscriber(subscriptionId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "An active Premium subscription is required to manage tracked routes." });
+        }
+        return { success: await removeTrackedRoute(id) };
+      }),
+    // Admin only: one call refreshes EVERY tracked route, spends the alert pool and
+    // sends Telegram messages. Left public it was a notification-spam lever, not just
+    // a quota risk.
+    scan: adminProcedure.use(rateLimited()).mutation(async () => {
       const result = await scanTrackedRoutes();
       const notifications = await Promise.all(result.alerts.filter(item => item.notified).map(item => sendPriceDropNotification(item.route, item.dropPercent)));
       return { ...result, notifications };

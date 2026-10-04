@@ -1,5 +1,6 @@
 import { loadLiveHistory, loadPersistedRoutes, persistRoute, recordPricePoint, removePersistedRoute, type PersistableRoute } from "./price-store";
-import { chargeQuota } from "./quota";
+import { chargeQuota, loadQuotaStatus } from "./quota";
+import { httpReason, recordFallThrough, recordProviderCall, thrownReason, type ProviderCall } from "./provider-obs";
 import { deliverTelegram, type NotificationResult } from "./telegram";
 import type { PriceHistoryRow, TrackedRouteRow } from "../drizzle/schema";
 
@@ -385,6 +386,45 @@ export function liveBudgetStatus(): LiveBudgetSnapshot {
   };
 }
 
+/**
+ * E14 circuit-breaker.
+ *
+ * E14 has only ever WARNED at 75%, so the last quarter of the shared pool stayed
+ * spendable by anonymous search - the escalation fired and the pool drained anyway.
+ * Past 75% that remainder is reserved for the tracked-route refreshes paying
+ * subscribers wait on, and public search falls through to the honestly-labelled
+ * sample/estimate path instead. Alert refreshes are NEVER blocked by this.
+ *
+ * Memoised for a minute: the ledger read is a database round trip and this sits on
+ * every uncached search.
+ */
+const SEARCH_SPEND_MEMO_MS = 60_000;
+let searchSpendMemo: { at: number; blocked: boolean } | undefined;
+
+async function searchSpendAllowed(): Promise<boolean> {
+  if (searchSpendMemo && Date.now() - searchSpendMemo.at < SEARCH_SPEND_MEMO_MS) {
+    return !searchSpendMemo.blocked;
+  }
+  let blocked = false;
+  try {
+    // `warn` is already `used * 100 >= limit * QUOTA_WARN_PERCENT` (quota.ts:98), so
+    // the 75% boundary uses the same integer arithmetic as E14 itself rather than a
+    // second threshold that could drift away from the first.
+    const scrappa = (await loadQuotaStatus()).find(row => row.key === "scrappa");
+    blocked = Boolean(scrappa?.warn);
+  } catch {
+    blocked = false; // fail open: a quota read must never cost a customer a search
+  }
+  searchSpendMemo = { at: Date.now(), blocked };
+  return !blocked;
+}
+
+/** Test-only: the memo is module state, and its 60s window would otherwise make a
+ *  blocked/allowed pair unobservable inside a single test run. */
+export function resetSearchSpendMemo() {
+  searchSpendMemo = undefined;
+}
+
 type ScrappaLeg = {
   airline?: string;
   flight_number?: string;
@@ -411,6 +451,11 @@ const scrappaProvider: LiveProvider = {
   id: "Google Flights",
   envKey: "SCRAPPA_API_KEY",
   async search(leg, apiKey) {
+    // PROPOSAL 22: every exit records itself, because `return null` used to be
+    // indistinguishable between "no key", "402", "timeout" and "no results".
+    const startedAt = Date.now();
+    const done = (entry: Omit<ProviderCall, "provider" | "at" | "ms">) =>
+      recordProviderCall({ provider: "Google Flights", ms: Date.now() - startedAt, ...entry });
     try {
       const url = new URL("https://scrappa.co/api/flights/one-way");
       url.searchParams.set("origin", leg.origin);
@@ -420,13 +465,23 @@ const scrappaProvider: LiveProvider = {
       url.searchParams.set("sort_by", "cheapest");
 
       const response = await fetch(url, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(20_000) });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        done({ ok: false, status: response.status, reason: httpReason(response.status), offers: 0 });
+        return null;
+      }
 
-      const payload = (await response.json()) as { flights?: ScrappaFlight[] };
+      const payload = (await response.json()) as {
+        flights?: ScrappaFlight[];
+        /** Scrappa reports its own latency; we used to discard it. */
+        search_metadata?: { response_time_ms?: number };
+      };
       const flights = Array.isArray(payload.flights) ? payload.flights : [];
-      if (flights.length === 0) return null;
+      if (flights.length === 0) {
+        done({ ok: false, status: response.status, reason: "empty", offers: 0 });
+        return null;
+      }
 
-      return flights.slice(0, 6).map(flight => {
+      const mapped = flights.slice(0, 6).map(flight => {
         const segments = Array.isArray(flight.legs) ? flight.legs : [];
         const first = segments[0] ?? {};
         const last = segments[segments.length - 1] ?? first;
@@ -442,7 +497,16 @@ const scrappaProvider: LiveProvider = {
           // Deliberately no baggage field: this endpoint does not return one.
         } satisfies RawFare;
       });
-    } catch {
+      done({
+        ok: true,
+        status: response.status,
+        reason: "ok",
+        offers: mapped.length,
+        upstreamMs: payload.search_metadata?.response_time_ms,
+      });
+      return mapped;
+    } catch (error) {
+      done({ ok: false, status: null, reason: thrownReason(error), offers: 0 });
       return null;
     }
   },
@@ -477,6 +541,11 @@ const ignavProvider: LiveProvider = {
   id: "Ignav",
   envKey: "IGNAV_API_KEY",
   async search(leg, apiKey) {
+    // PROPOSAL 22: same instrumentation as Scrappa, so the reserve pool's burn rate
+    // and failure modes are visible instead of inferred.
+    const startedAt = Date.now();
+    const done = (entry: Omit<ProviderCall, "provider" | "at" | "ms">) =>
+      recordProviderCall({ provider: "Ignav", ms: Date.now() - startedAt, ...entry });
     try {
       const response = await fetch("https://ignav.com/api/fares/one-way", {
         method: "POST",
@@ -489,13 +558,19 @@ const ignavProvider: LiveProvider = {
         }),
         signal: AbortSignal.timeout(20_000),
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        done({ ok: false, status: response.status, reason: httpReason(response.status), offers: 0 });
+        return null;
+      }
 
       const payload = (await response.json()) as { itineraries?: IgnavItinerary[] };
       const itineraries = Array.isArray(payload.itineraries) ? payload.itineraries : [];
-      if (itineraries.length === 0) return null;
+      if (itineraries.length === 0) {
+        done({ ok: false, status: response.status, reason: "empty", offers: 0 });
+        return null;
+      }
 
-      return itineraries.slice(0, 6).map(itinerary => {
+      const mapped = itineraries.slice(0, 6).map(itinerary => {
         const outbound = itinerary.outbound ?? {};
         const segments = Array.isArray(outbound.segments) ? outbound.segments : [];
         const first = segments[0] ?? {};
@@ -513,7 +588,10 @@ const ignavProvider: LiveProvider = {
           baggage: formatIgnavBags(itinerary.bags),
         } satisfies RawFare;
       });
-    } catch {
+      done({ ok: true, status: response.status, reason: "ok", offers: mapped.length });
+      return mapped;
+    } catch (error) {
+      done({ ok: false, status: null, reason: thrownReason(error), offers: 0 });
       return null;
     }
   },
@@ -613,16 +691,28 @@ async function searchLiveFares(input: {
   const wantsReturn = input.tripType !== "oneWay" && Boolean(input.returnDate);
   const purpose: LivePurpose = input.purpose ?? "search";
 
+  // PROPOSAL 22: the chain used to move on silently, so "how often did we fall back
+  // to Ignav, and how often all the way to seed" was unanswerable after the fact.
+  // Every abandonment and the final give-up is now counted.
+  let lastProvider = "chain";
+
   for (const provider of LIVE_PROVIDERS) {
     if (liveBudgetExhausted(purpose)) break;
+    lastProvider = provider.id;
 
     const outbound = await getLiveLeg(provider, outboundLeg, purpose);
-    if (!outbound) continue; // no key, no credits, outage, or empty - try next supplier
+    if (!outbound) {
+      recordFallThrough(provider.id, "next-provider", purpose);
+      continue; // no key, no credits, outage, or empty - try next supplier
+    }
 
     let offers = outbound;
     if (wantsReturn) {
       const back = await getLiveLeg(provider, returnLeg, purpose);
-      if (!back) continue; // never mix suppliers: restart the whole search elsewhere
+      if (!back) {
+        recordFallThrough(provider.id, "next-provider", purpose);
+        continue; // never mix suppliers: restart the whole search elsewhere
+      }
       offers = offers.map((out, index) => {
         const leg = back[index % back.length];
         return { ...out, price: out.price + leg.price, returnPrice: leg.price };
@@ -634,6 +724,9 @@ async function searchLiveFares(input: {
     return [...offers].sort((a, b) => a.price - b.price).map((offer, index) => ({ ...offer, isBest: index === 0 }));
   }
 
+  // Reaching here means no supplier could price the search: the customer is about to
+  // be served the sample/estimate path. That transition is exactly what Q4 asked for.
+  recordFallThrough(lastProvider, "seed", purpose);
   return null;
 }
 
@@ -650,7 +743,12 @@ export async function searchFlights(
   // Live fares first: walk the supplier chain. If none can answer we fall through to
   // the sample/estimate path, which is labelled honestly in the UI - a customer
   // always gets an answer, never an error and never a fake "live" price.
-  const liveOffers = await searchLiveFares({ ...input, origin, destination, purpose });
+  //
+  // E14 circuit-breaker sits between the cache and the chain on purpose: a cached
+  // live answer is already paid for and free, so it may still be served, but past
+  // 75% no NEW credit may be spent on a public search.
+  const spendAllowed = purpose === "alert" || (await searchSpendAllowed());
+  const liveOffers = spendAllowed ? await searchLiveFares({ ...input, origin, destination, purpose }) : null;
   if (liveOffers && liveOffers.length > 0) {
     cachedResults.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, offers: liveOffers, source: "live" });
     return { offers: liveOffers, cached: false, source: "live" as const };

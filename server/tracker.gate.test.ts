@@ -44,3 +44,29 @@ describe("tracker.add premium gate", () => {
     expect(await attempt("I-1AB23C4D5E6F7G8H9I0J")).toBe("FORBIDDEN");
   });
 });
+
+async function attemptRemove(subscriptionId?: string) {
+  try {
+    await caller.tracker.remove({ id: "route-does-not-matter", ...(subscriptionId ? { subscriptionId } : {}) });
+    return "ALLOWED";
+  } catch (error) {
+    return (error as { code?: string }).code ?? "THREW";
+  }
+}
+
+describe("tracker.remove gate (PROPOSAL 23)", () => {
+  // Before this, `remove` was a publicProcedure: anyone could delete any route by id
+  // with no credential of any kind. The gate must refuse BEFORE the row is touched.
+  it("refuses a caller with no subscription id", async () => {
+    expect(await attemptRemove()).toBe("FORBIDDEN");
+  });
+
+  it("refuses a malformed subscription id without ever reaching the network", async () => {
+    expect(await attemptRemove("../../etc/passwd")).toBe("FORBIDDEN");
+    expect(await attemptRemove("I-1AB23C4D5E6F7G8H9I0J; DROP TABLE users")).toBe("FORBIDDEN");
+  });
+
+  it("refuses a well-formed id that PayPal does not recognise as active", async () => {
+    expect(await attemptRemove("I-1AB23C4D5E6F7G8H9I0J")).toBe("FORBIDDEN");
+  });
+});

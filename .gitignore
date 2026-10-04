@@ -45,6 +45,9 @@ pids
 *.seed
 *.pid.lock
 *.bak
+# Dated backups (db.ts.bak-p18-20261004 and friends). `*.bak` above only matches a
+# file ENDED in .bak, so the timestamped copies were still showing as untracked.
+*.bak-*
 
 # Coverage directory used by tools like istanbul
 coverage/
