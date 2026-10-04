@@ -45,16 +45,38 @@ afterEach(() => {
 const provider = (key: string) => QUOTA_PROVIDERS.find(item => item.key === key)!;
 
 describe("scrappa pack (PROPOSAL 20)", () => {
-  it("is worth nothing until the owner buys it", () => {
+  it("is in play for 33,500 now that the owner has confirmed the purchase", () => {
+    // CONFIRM 20, 2026-10-04: the two activation fields are set, so the pack reports
+    // its real worth and joins the free pool to make one balance.
     const pack = provider("scrappa-pack");
-    expect(pack.limit).toBe(0);
-    expect(availableLimit(pack)).toBe(0);
+    expect(SCRAPPA_PACK.limit).toBe(33_000);
+    expect(SCRAPPA_PACK.issuedAt).toBe("2026-10-04");
+    expect(pack.limit).toBe(33_000);
+    expect(availableLimit(pack)).toBe(33_000);
+
+    const rows = buildQuotaStatus({}, "database");
+    expect(rows.find(item => item.key === "scrappa-pack")?.limit).toBe(33_000);
+    expect(scrappaCombined(rows).limit).toBe(33_500);
+
+    // Expiry is derived from the issue date, never stored: alive the day before,
+    // worth nothing at midnight on the anniversary.
+    expect(availableLimit(pack, new Date("2027-10-03T12:00:00Z"))).toBe(33_000);
+    expect(availableLimit(pack, new Date("2027-10-04T00:00:00Z"))).toBe(0);
+  });
+
+  it("keeps a pack that is not in play silent rather than flagging it", () => {
+    // The invariant, driven explicitly instead of by the production default: a pool
+    // worth 0 is not empty, it is absent, and it must never raise a red flag nobody
+    // could ever clear. A withdrawn or already-expired pack falls back to the free
+    // pool's 500-credit ceiling, which is what the breaker judged before CONFIRM 20.
+    SCRAPPA_PACK.limit = 0;
+    SCRAPPA_PACK.issuedAt = "";
+
+    expect(availableLimit(provider("scrappa-pack"))).toBe(0);
 
     const rows = buildQuotaStatus({}, "database");
     const row = rows.find(item => item.key === "scrappa-pack");
     expect(row?.limit).toBe(0);
-    // Worth nothing is NOT the same as empty: it must stay quiet rather than raise
-    // a red flag nobody can ever clear.
     expect(row?.warn).toBe(false);
     expect(row?.exhausted).toBe(false);
     expect(scrappaCombined(rows).limit).toBe(500);
@@ -119,16 +141,10 @@ describe("scrappa pack (PROPOSAL 20)", () => {
   });
 
   it("trips at 75% of the total available pool, not of either pool alone", () => {
-    // Unpurchased: the total is the free pool only, so behaviour is unchanged from
-    // before this proposal - 375 of 500, exactly 75%, and 374 stays quiet.
-    const unpurchased = buildQuotaStatus({ scrappa: 375 }, "database");
-    expect(scrappaCombined(unpurchased).limit).toBe(500);
-    expect(scrappaCombined(unpurchased).percent).toBe(75);
-    expect(scrappaCombined(unpurchased).warn).toBe(true);
-    expect(scrappaCombined(buildQuotaStatus({ scrappa: 374 }, "database")).warn).toBe(false);
-
-    // After CONFIRM 20 the total is 33,500, so the line moves to 25,125.
-    buyPack("2026-10-05");
+    // CONFIRM 20: the pack is bought, so the total is 33,500 and the line is 25,125 -
+    // not 375. That is precisely what the purchase buys: 375 credits into the free
+    // pool is 75% of that pool but only 1.1% of the balance, and it is the balance
+    // that empties.
     const atLine = scrappaCombined(
       buildQuotaStatus({ scrappa: 500, "scrappa-pack": 24_625 }, "database"),
     );
@@ -142,5 +158,25 @@ describe("scrappa pack (PROPOSAL 20)", () => {
     );
     expect(oneBelow.used).toBe(25_124);
     expect(oneBelow.warn).toBe(false);
+
+    // The free pool can be spent out completely without tripping anything, because
+    // the pack behind it is untouched - the buffer the pack was bought to provide.
+    const freeOnly = scrappaCombined(
+      buildQuotaStatus({ scrappa: 500, "scrappa-pack": 0 }, "database"),
+    );
+    expect(freeOnly.used).toBe(500);
+    expect(freeOnly.percent).toBe(1);
+    expect(freeOnly.warn).toBe(false);
+
+    // With the pack withdrawn the ceiling falls back to the free pool alone, so the
+    // breaker still behaves exactly as it did before CONFIRM 20: 375 of 500 trips it
+    // and 374 stays quiet.
+    SCRAPPA_PACK.limit = 0;
+    SCRAPPA_PACK.issuedAt = "";
+    const unpurchased = buildQuotaStatus({ scrappa: 375 }, "database");
+    expect(scrappaCombined(unpurchased).limit).toBe(500);
+    expect(scrappaCombined(unpurchased).percent).toBe(75);
+    expect(scrappaCombined(unpurchased).warn).toBe(true);
+    expect(scrappaCombined(buildQuotaStatus({ scrappa: 374 }, "database")).warn).toBe(false);
   });
 });

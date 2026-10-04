@@ -165,6 +165,7 @@ describe("E14 circuit-breaker (PROPOSAL 19)", () => {
     // holds: vi.mock spreads the actual namespace, so SCRAPPA_PACK is shared by
     // reference and mutating it here changes what buildQuotaStatus reports to it.
     const quota = await import("./quota");
+    const original = { ...quota.SCRAPPA_PACK };
     quota.SCRAPPA_PACK.limit = 33_000;
     quota.SCRAPPA_PACK.issuedAt = "2026-10-05";
 
@@ -186,14 +187,17 @@ describe("E14 circuit-breaker (PROPOSAL 19)", () => {
       expect(result.source).toBe("live");
       expect(fetchMock).toHaveBeenCalled();
     } finally {
-      quota.SCRAPPA_PACK.limit = 0;
-      quota.SCRAPPA_PACK.issuedAt = "";
+      // Restore what was there, not a hardcoded 0/"": CONFIRM 20 made those the wrong
+      // values, and a restore that silently unpurchases the pack would poison any
+      // later assertion in this same module instance.
+      Object.assign(quota.SCRAPPA_PACK, original);
     }
   });
 
   it("still blocks at 75% of the combined total once the pack is bought", async () => {
     const { searchFlights, resetSearchSpendMemo } = await fresh();
     const quota = await import("./quota");
+    const original = { ...quota.SCRAPPA_PACK };
     quota.SCRAPPA_PACK.limit = 33_000;
     quota.SCRAPPA_PACK.issuedAt = "2026-10-05";
 
@@ -212,8 +216,10 @@ describe("E14 circuit-breaker (PROPOSAL 19)", () => {
       expect(result.source).not.toBe("live");
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
-      quota.SCRAPPA_PACK.limit = 0;
-      quota.SCRAPPA_PACK.issuedAt = "";
+      // Restore what was there, not a hardcoded 0/"": CONFIRM 20 made those the wrong
+      // values, and a restore that silently unpurchases the pack would poison any
+      // later assertion in this same module instance.
+      Object.assign(quota.SCRAPPA_PACK, original);
     }
   });
 });

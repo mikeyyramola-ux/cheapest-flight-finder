@@ -29,19 +29,24 @@ import { getDb } from "./db";
 export const QUOTA_WARN_PERCENT = 75;
 
 /**
- * PROPOSAL 20: the $10 Scrappa Starter pack - bought once, 33,000 credits, valid 12
- * months (scrappa.co/pricing), no auto-renew.
+ * PROPOSAL 20 / CONFIRM 20: the $10 Scrappa Starter pack - bought once, 33,000
+ * credits, valid 12 months (scrappa.co/pricing), no auto-renew.
  *
- * It sits UNPURCHASED until the owner says `CONFIRM 20`: `limit` 0 and `issuedAt`
- * empty. Those two fields are the entire activation step, which is the point - a
- * month rolling over cannot grant this pack, because a rollover moves the free pool
- * to a new period key and never touches anything here.
+ * Activated on the owner's CONFIRM 20, 2026-10-04 UTC. Those two fields are the
+ * whole activation step: nothing here is derived from a stored expiry column, so
+ * turning the pack on never needed a migration, a cron or a schema change.
+ *
+ * `issuedAt` is UTC to match every other period in this module - quotaPeriodKey
+ * reads getUTCFullYear/getUTCMonth, and packPeriodKey parses this string as UTC
+ * midnight. The owner's local date at confirmation was 2026-10-05 IST; both dates
+ * give the same `pack-2026-10` bucket and differ only by a day of expiry, so a
+ * purchase made on his local date is a one-field correction.
  */
 export const SCRAPPA_PACK = {
-  /** 0 while unpurchased. Becomes 33_000 on CONFIRM 20. */
-  limit: 0,
-  /** "" while unpurchased. Becomes "YYYY-MM-DD" on CONFIRM 20. */
-  issuedAt: "",
+  /** CONFIRM 20: 33,000 credits. Set to 0 to withdraw the pack. */
+  limit: 33_000,
+  /** CONFIRM 20: issue date. Expiry and the period key derive from this alone. */
+  issuedAt: "2026-10-04",
   /** Months the pack stays valid from its issue date. */
   validMonths: 12,
 };
