@@ -3,7 +3,7 @@ import { Link } from "wouter";
 
 /**
  * Refund policy page (ASK 101). Content mirrors
- * compliance\refund-policy.md (wording option A as approved) - keep in sync.
+ * compliance\refund-policy.md (owner decision option 1, ASK 107) - keep in sync.
  */
 export default function RefundPolicy() {
   return (
@@ -23,8 +23,12 @@ export default function RefundPolicy() {
             <p>Cancel from your account page (Billing, cancel button). Your plan stops at the end of the period you already paid for.</p>
           </div>
           <div className="seo-copy">
+            <h2>Try before you buy</h2>
+            <p>Open Preview mode from the paywall to browse Premium before paying anything.</p>
+          </div>
+          <div className="seo-copy">
             <h2>Changed your mind?</h2>
-            <p>Get a full refund within 14 days of purchase, for any reason: email <a href="mailto:billing@fareloop.in">billing@fareloop.in</a> with the address you signed up with.</p>
+            <p>Purchases are non-refundable - we do not offer refunds when you change your mind after you buy. If your situation is special, email <a href="mailto:billing@fareloop.in">billing@fareloop.in</a> with the address you signed up with: every case is read individually, and any goodwill refund is granted at management's sole discretion based on the situation.</p>
           </div>
           <div className="seo-copy">
             <h2>Billing errors</h2>
@@ -35,8 +39,8 @@ export default function RefundPolicy() {
             <p>If a payment is successfully charged back, premium access on that account is removed.</p>
           </div>
           <div className="seo-copy">
-            <h2>How the money returns</h2>
-            <p>Refunds go back to the original payment method within 10 business days of approval.</p>
+            <h2>If a refund is approved</h2>
+            <p>Any refund we approve - a billing error or an exception - goes back to the original payment method.</p>
           </div>
         </section>
         <footer className="faq-footer">
