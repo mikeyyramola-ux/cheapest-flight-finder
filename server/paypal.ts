@@ -3,7 +3,7 @@ import { deliverTelegram } from "./telegram";
 
 export const premiumPlanPayPal = {
   name: "Premium Member (PayPal)",
-  price: 9.99,
+  price: 9.00,
   interval: "month",
   features: ["Instant price-drop alerts", "Historical price trends", "Unlimited route tracking"],
 };

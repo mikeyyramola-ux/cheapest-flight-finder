@@ -35,7 +35,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "How much does Fareloop Premium cost?",
-    a: "Premium is $9.99 per month. It unlocks unlimited route tracking, route price history, target-budget alerts and Telegram price-drop notifications, with no booking markups. You can cancel anytime and keep your saved routes.",
+    a: "Premium is $9.00 per month. It unlocks unlimited route tracking, route price history, target-budget alerts and Telegram price-drop notifications, with no booking markups. You can cancel anytime and keep your saved routes.",
   },
   {
     q: "Is searching flights on Fareloop free?",

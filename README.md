@@ -40,7 +40,7 @@ TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 TWILIO_WHATSAPP_TO=whatsapp:+15551234567
 ```
 
-Stripe test mode: create a recurring USD price at $9.99/month, copy its Price ID to `STRIPE_PREMIUM_PRICE_ID`, and use card `4242 4242 4242 4242` in Checkout. Register `POST /api/stripe/webhook` in the Stripe Dashboard and subscribe to `checkout.session.completed` and `invoice.paid`.
+Stripe test mode: create a recurring USD price at $9.00/month, copy its Price ID to `STRIPE_PREMIUM_PRICE_ID`, and use card `4242 4242 4242 4242` in Checkout. Register `POST /api/stripe/webhook` in the Stripe Dashboard and subscribe to `checkout.session.completed` and `invoice.paid`.
 
 ## Scheduled scanner
 

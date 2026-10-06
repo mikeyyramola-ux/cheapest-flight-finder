@@ -3,7 +3,7 @@ import { updateUserStripeSubscription } from "./db";
 
 export const premiumPlan = {
   name: "Premium Member",
-  price: 9.99,
+  price: 9.00,
   interval: "month",
   features: ["Instant price-drop alerts", "Historical price trends", "Unlimited route tracking", "Priority deal scans"],
 };

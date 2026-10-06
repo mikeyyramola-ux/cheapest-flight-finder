@@ -34,7 +34,7 @@ const ROUTE_META: Record<string, HeadMeta> = {
     canonicalPath: "/tracker",
   },
   "/paywall": {
-    title: "Fareloop Premium – Price-Drop Alerts for $9.99/Month",
+    title: "Fareloop Premium – Price-Drop Alerts for $9.00/Month",
     description: "Unlock unlimited route tracking, historical fare trends, target-price alerts and priority scans. Cancel anytime, no booking markups.",
     canonicalPath: "/paywall",
   },
@@ -163,7 +163,7 @@ function buildHeadTags(head: HeadMeta) {
     applicationCategory: "TravelApplication",
     operatingSystem: "Web",
     description: head.description,
-    offers: { "@type": "Offer", price: "9.99", priceCurrency: "USD" },
+    offers: { "@type": "Offer", price: "9.00", priceCurrency: "USD" },
   }).replace(/</g, "\\u003c")}</script>`);
   tags.push(`<script type="application/ld+json">${JSON.stringify({
     "@context": "https://schema.org",
