@@ -14,7 +14,7 @@ export async function createPremiumCheckout(input: { origin: string; userId?: nu
   if (!stripe || !process.env.STRIPE_PREMIUM_PRICE_ID) {
     return { mode: "demo" as const, url: `/paywall?checkout=demo&route=${encodeURIComponent(input.origin)}` };
   }
-  const origin = process.env.APP_ORIGIN ?? "https://faredrop-snowy.vercel.app";
+  const origin = process.env.APP_ORIGIN ?? "https://fareloop.in";
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer_email: input.email ?? undefined,
