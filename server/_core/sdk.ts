@@ -1,3 +1,4 @@
+import { warnAndPage } from "../alerts";
 import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS, decodeOAuthState } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
@@ -200,7 +201,7 @@ class SDKServer {
     cookieValue: string | undefined | null
   ): Promise<{ openId: string; appId: string; name: string } | null> {
     if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
+      warnAndPage("auth:missing-cookie", "[Auth] Missing session cookie");
       return null;
     }
 
@@ -216,7 +217,7 @@ class SDKServer {
         !isNonEmptyString(appId) ||
         !isNonEmptyString(name)
       ) {
-        console.warn("[Auth] Session payload missing required fields");
+        warnAndPage("auth:payload-incomplete", "[Auth] Session payload missing required fields");
         return null;
       }
 
@@ -226,7 +227,7 @@ class SDKServer {
         name,
       };
     } catch (error) {
-      console.warn("[Auth] Session verification failed", String(error));
+      warnAndPage("auth:verify-failed", "[Auth] Session verification failed", String(error));
       return null;
     }
   }

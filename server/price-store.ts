@@ -1,3 +1,4 @@
+import { warnAndPage } from "./alerts";
 import { and, desc, eq } from "drizzle-orm";
 import { priceHistory, trackedRoute, type PriceHistoryRow, type TrackedRouteRow } from "../drizzle/schema";
 import { getDb } from "./db";
@@ -18,7 +19,7 @@ import { getDb } from "./db";
  */
 
 const note = (operation: string, error: unknown) => {
-  console.warn(`[price-store] ${operation} skipped:`, error instanceof Error ? error.message : String(error));
+  warnAndPage("price-store:skipped", `[price-store] ${operation} skipped:`, error instanceof Error ? error.message : String(error));
 };
 
 /** One real observation of a fare. `provider` is mandatory by construction: a row

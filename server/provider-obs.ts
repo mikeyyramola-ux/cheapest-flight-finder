@@ -14,6 +14,7 @@
  * posture as the live budget - but failures are ALSO echoed through console.warn so
  * they reach the platform logs even on a cold instance that only lives for seconds.
  */
+import { warnAndPage } from "./alerts";
 
 export type ProviderCall = {
   /** Supplier's own id, e.g. "Google Flights" / "Ignav". */
@@ -57,7 +58,7 @@ export function recordProviderCall(entry: Omit<ProviderCall, "at"> & { at?: numb
   if (!entry.ok) {
     // The failures are the entire point of this module. Echo them so they survive
     // an instance that dies before anyone reads the buffer.
-    console.warn(
+    warnAndPage("provider:failure",
       "[provider]",
       entry.provider,
       `status=${entry.status ?? "-"}`,

@@ -1,3 +1,4 @@
+import { warnAndPage } from "./alerts";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
@@ -11,7 +12,7 @@ export async function getDb() {
     try {
       _db = drizzle(process.env.DATABASE_URL);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      warnAndPage("db:connect", "[Database] Failed to connect:", error);
       _db = null;
     }
   }
@@ -25,7 +26,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
+    warnAndPage("db:upsert-user", "[Database] Cannot upsert user: database not available");
     return;
   }
 
@@ -80,7 +81,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
+    warnAndPage("db:get-user", "[Database] Cannot get user: database not available");
     return undefined;
   }
 
@@ -107,7 +108,7 @@ export async function getUserBySubscriptionId(
 
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot get user by subscription: database not available");
+    warnAndPage("db:get-user-by-subscription", "[Database] Cannot get user by subscription: database not available");
     return undefined;
   }
 
@@ -125,7 +126,7 @@ export async function updateUserStripeSubscription(input: {
 }) {
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot persist Stripe subscription: database not available");
+    warnAndPage("db:persist-stripe", "[Database] Cannot persist Stripe subscription: database not available");
     return false;
   }
 
@@ -144,7 +145,7 @@ export async function updateUserPayPalSubscription(input: {
 }) {
   const db = await getDb();
   if (!db) {
-    console.warn("[Database] Cannot persist PayPal subscription: database not available");
+    warnAndPage("db:persist-paypal", "[Database] Cannot persist PayPal subscription: database not available");
     return false;
   }
 
