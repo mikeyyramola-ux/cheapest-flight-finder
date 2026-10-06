@@ -118,6 +118,22 @@ export async function getPayPalSubscription(subscriptionId: string) {
   return paypalFetch(`/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 
+/**
+ * A paid event we could not record has to reach the owner, not the console.
+ *
+ * Two ways that happens: there is no database to write into (DATABASE_URL
+ * missing), or there is no user to attach the subscription to (custom_id was
+ * not a user id - which is exactly what an anonymous checkout produces). Both
+ * used to be silent, and silence is how "paid, granted nothing, nobody told"
+ * stays possible.
+ */
+async function alertUnrecorded(reason: string, subscriptionId: string | null | undefined) {
+  const notice = await deliverTelegram(
+    `Fareloop: PayPal ${reason} (sub ${subscriptionId || "unknown"}) - ACCESS NOT RECORDED`
+  );
+  if (!notice.delivered) console.warn("[PayPal] Unrecorded-event alert not delivered:", notice.reason);
+}
+
 export async function handlePayPalWebhook(
   payload: Buffer,
   headers: Record<string, string | string[] | undefined>
@@ -162,7 +178,10 @@ export async function handlePayPalWebhook(
     const userId = Number(subscription.custom_id);
     const subscriptionId = subscription.id;
     if (Number.isInteger(userId) && userId > 0) {
-      await updateUserPayPalSubscription({ userId, subscriptionId, status: "active" });
+      const persisted = await updateUserPayPalSubscription({ userId, subscriptionId, status: "active" });
+      if (!persisted) await alertUnrecorded("subscription is active but there is no database to record it in", subscriptionId);
+    } else {
+      await alertUnrecorded("subscription is active but it has no user to attribute it to", subscriptionId);
     }
     return { verified: true, type: event.event_type };
   }
@@ -172,7 +191,10 @@ export async function handlePayPalWebhook(
     const userId = Number(subscription.custom_id);
     const subscriptionId = subscription.id;
     if (Number.isInteger(userId) && userId > 0) {
-      await updateUserPayPalSubscription({ userId, subscriptionId, status: "canceled" });
+      const persisted = await updateUserPayPalSubscription({ userId, subscriptionId, status: "canceled" });
+      if (!persisted) await alertUnrecorded("cancellation could not be recorded - no database", subscriptionId);
+    } else {
+      await alertUnrecorded("cancellation has no user to attribute it to", subscriptionId);
     }
     return { verified: true, type: event.event_type };
   }
@@ -188,7 +210,8 @@ export async function handlePayPalWebhook(
     const customId = Number(subscription.custom_id);
     const userId = found?.id ?? (Number.isInteger(customId) && customId > 0 ? customId : undefined);
     if (userId) {
-      await updateUserPayPalSubscription({ userId, subscriptionId, status: "past_due" });
+      const persisted = await updateUserPayPalSubscription({ userId, subscriptionId, status: "past_due" });
+      if (!persisted) await alertUnrecorded("past_due could not be recorded - no database", subscriptionId);
       console.warn("[PayPal] Payment failed", { subscriptionId, userId });
     } else {
       console.warn("[PayPal] Payment failed but no user matched", { subscriptionId });
@@ -207,7 +230,8 @@ export async function handlePayPalWebhook(
     const customId = Number(resource.custom_id);
     const userId = found?.id ?? (Number.isInteger(customId) && customId > 0 ? customId : undefined);
     if (userId) {
-      await updateUserPayPalSubscription({ userId, subscriptionId, status: "canceled" });
+      const persisted = await updateUserPayPalSubscription({ userId, subscriptionId, status: "canceled" });
+      if (!persisted) await alertUnrecorded("refund revocation could not be recorded - no database", subscriptionId);
       console.warn("[PayPal] Refund processed", { subscriptionId, userId });
     } else {
       console.warn("[PayPal] Refund could not be attributed to a user", { subscriptionId });
