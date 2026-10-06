@@ -103,7 +103,7 @@ export default function FAQ() {
         <footer className="faq-footer">
           <p>Ready to compare fares? <Link href="/">Search cheap flights</Link>, watch a route in the <Link href="/tracker">deal tracker</Link>, see what <Link href="/paywall">Premium</Link> unlocks, or open a <Link href="/flights-to">destination fare guide</Link>.</p>
           <p style={{ marginTop: 10 }}>
-            <a href="/privacy.html">Privacy policy</a> · <a href="/terms.html">Terms of service</a>
+            <a href="/privacy.html">Privacy policy</a> · <a href="/terms.html">Terms of service</a> · <Link href="/grievance">Grievance procedure</Link> · <Link href="/refund-policy">Refund policy</Link>
           </p>
         </footer>
       </main>

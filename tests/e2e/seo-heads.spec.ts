@@ -67,7 +67,7 @@ test.describe("seo heads", () => {
     const xml = await response.text();
     const locs = Array.from(xml.matchAll(/<loc>([^<]+)<\/loc>/g)).map(match => match[1]);
 
-    const expectedPaths = ["/", "/tracker", "/paywall", "/faq", "/flights-to", ...DESTINATION_PATHS];
+    const expectedPaths = ["/", "/tracker", "/paywall", "/faq", "/grievance", "/refund-policy", "/flights-to", ...DESTINATION_PATHS];
     console.log(`SITEMAP_LOCS ${locs.length} (expected ${expectedPaths.length})`);
     expect(locs.length, `sitemap must list exactly the app routes, got ${locs.length}`).toBe(expectedPaths.length);
     for (const path of expectedPaths) expect(locs, `sitemap missing ${path}`).toContain(canonicalFor(origin, path));

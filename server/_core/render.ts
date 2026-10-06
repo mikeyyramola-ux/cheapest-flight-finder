@@ -43,6 +43,16 @@ const ROUTE_META: Record<string, HeadMeta> = {
     description: "Answers on finding cheap flights, how price-drop alerts work, route coverage, Premium pricing, and transparent affiliate links.",
     canonicalPath: "/faq",
   },
+  "/grievance": {
+    title: "Grievance Procedure & Grievance Officer | Fareloop",
+    description: "Raise a complaint with Fareloop: we acknowledge within 24 hours, resolve within 15 days, with a direct escalation path to the Grievance Officer.",
+    canonicalPath: "/grievance",
+  },
+  "/refund-policy": {
+    title: "Refund Policy – Cancel Anytime, 14-Day Refunds | Fareloop",
+    description: "Cancel any time and get a full refund within 14 days of purchase for any reason. Billing errors are refunded in full and chargebacks lose premium access.",
+    canonicalPath: "/refund-policy",
+  },
   "/flights-to": {
     title: "Flight Destinations – City Fare Guides | Fareloop",
     description: `Fare guides for ${DESTINATIONS.length} major cities: when to fly, which airport to use, and how to watch the price trend before you book.`,
