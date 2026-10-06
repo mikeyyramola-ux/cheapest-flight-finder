@@ -283,3 +283,12 @@ button:disabled { cursor: wait; opacity: .68; }
 .quota-provenance p { margin:14px 0 0; color:rgba(255,255,255,.38); font-size:11px; line-height:1.7; }
 @media (max-width: 900px) { .quota-summary-grid { grid-template-columns:1fr 1fr; } .quota-bar-scale { margin-left:0; } .quota-bar-row { grid-template-columns:1fr; gap:6px; } .quota-bar-value { text-align:left; } }
 @media (max-width: 560px) { .quota-summary-grid { grid-template-columns:1fr; } .quota-gate-form { flex-direction:column; } .quota-gate-form button { justify-content:center; padding:11px 16px; } .quota-donut-grid { grid-template-columns:1fr; } }
+/* GO 62 (owner 2026-10-05): scroll control for the /paywall page (the last page
+   before PayPal - prod scrollHeight 2222 vs 700 viewport, no affordance existed).
+   Fixed on the right gutter; lifted above the consent underframe while #fl-consent
+   is on screen (its top edge sits ~166px up), otherwise it would hide behind the
+   banner's corner. Mobile: clears the 70px bottom nav (main-area padding). */
+.page-scroll-control { position: fixed; right: 24px; bottom: 96px; z-index: 40; display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid rgba(185,255,152,.35); border-radius: 999px; background: #15171d; color: #b9ff98; box-shadow: 0 14px 34px rgba(0,0,0,.5); cursor: pointer; transition: transform .16s ease, filter .16s ease; }
+.page-scroll-control:hover { filter: brightness(1.1); transform: translateY(-2px); }
+.page-scroll-control:focus-visible { outline: 2px solid #b9ff98; outline-offset: 2px; }
+body:has(#fl-consent) .page-scroll-control { bottom: 196px; }

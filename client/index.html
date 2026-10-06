@@ -17,6 +17,20 @@
          picks "Accept all" in the banner, because personalised ads on EEA/UK traffic
          need prior opt-in. Choice lives in localStorage fareloop_consent_v1.
          Decline keeps the loader off for good; analytics (umami, cookieless) stays. -->
+    <!-- GO 62 (owner 2026-10-05): the consent underframe centres on the CONTENT
+         column, not the viewport. With the 238px fixed sidebar the viewport-centred
+         box sat 126px left of the column centre and overlapped the sidebar by 75px.
+         Content centre = 50% + 119px (.main-area margin-left:238px in index.css,
+         .content-wrap auto-centred inside it) -> left = 50% - 211px for the 660px
+         box; width is capped (calc(50% + 195px)) so the right edge keeps a 16px
+         gutter on narrow desktops. Below 721px the sidebar is hidden (index.css
+         media query), so the original viewport centring returns there. -->
+    <style id="fl-consent-layout">
+      #fl-consent { left: calc(50% - 211px); right: auto; width: min(660px, calc(50% + 195px)); margin: 0; }
+      @media (max-width: 720px) {
+        #fl-consent { left: 16px; right: 16px; width: auto; max-width: 660px; margin: 0 auto; }
+      }
+    </style>
     <script>
       (function () {
         var KEY = "fareloop_consent_v1";
@@ -39,8 +53,10 @@
           box.id = "fl-consent";
           box.setAttribute("role", "dialog");
           box.setAttribute("aria-label", "Privacy choices");
-          box.style.cssText = "position:fixed;left:16px;right:16px;bottom:16px;z-index:9999;" +
-            "max-width:660px;margin:0 auto;padding:16px 18px;border-radius:14px;background:#15171d;" +
+          // GO 62: left/right/max-width/margin moved to #fl-consent-layout above so
+          // the box centres on the content column (the media query keeps mobile centred).
+          box.style.cssText = "position:fixed;bottom:16px;z-index:9999;" +
+            "padding:16px 18px;border-radius:14px;background:#15171d;" +
             "border:1px solid rgba(185,255,152,.28);color:rgba(255,255,255,.84);" +
             "font:14px/1.55 'DM Sans',system-ui,sans-serif;box-shadow:0 18px 44px rgba(0,0,0,.55)";
           box.innerHTML =
