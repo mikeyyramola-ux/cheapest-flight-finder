@@ -57,8 +57,9 @@ const trpcClient = trpc.createClient({
               return { Authorization: `Bearer ${token}` };
             }
           }
-        } catch {
+        } catch (error) {
           // sessionStorage unavailable
+          console.warn("main:token-from-storage", error);
         }
         return {};
       },

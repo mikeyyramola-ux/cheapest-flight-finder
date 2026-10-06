@@ -291,13 +291,15 @@ export function takeUrlKey(
   if (!key) return null;
   try {
     remember(key);
-  } catch {
+  } catch (error) {
     // Not remembered - it still governs this load.
+    console.warn("ops:remember-key", error);
   }
   try {
     stripFromAddress();
-  } catch {
+  } catch (error) {
     // The address bar keeps showing it instead of losing it.
+    console.warn("ops:strip-address", error);
   }
   return key;
 }
@@ -325,8 +327,9 @@ export default function Ops() {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) setToken(saved);
-    } catch {
+    } catch (error) {
       // Storage can be blocked outright; the paste field below still works.
+      console.warn("ops:restore-token", error);
     }
   }, []);
 
@@ -341,8 +344,9 @@ export default function Ops() {
           // A rejected key is discarded rather than retried forever on reload.
           try {
             sessionStorage.removeItem(STORAGE_KEY);
-          } catch {
+          } catch (error) {
             // Nothing to clean up if storage is unavailable.
+            console.warn("ops:discard-token", error);
           }
           if (!cancelled) {
             setBoard(null);
@@ -371,8 +375,9 @@ export default function Ops() {
   const acceptKey = (value: string) => {
     try {
       sessionStorage.setItem(STORAGE_KEY, value);
-    } catch {
+    } catch (error) {
       // Held in state instead when storage is unavailable.
+      console.warn("ops:accept-token", error);
     }
     setBoard(null);
     setToken(value);

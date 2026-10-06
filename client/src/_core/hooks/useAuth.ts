@@ -44,7 +44,9 @@ export function useAuth(options?: UseAuthOptions) {
       // backend cookie is cleared by the logout mutation.
       try {
         sessionStorage.removeItem("manus-cookie");
-      } catch {}
+      } catch (error) {
+        console.warn("auth:session-clear", error);
+      }
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
@@ -57,8 +59,9 @@ export function useAuth(options?: UseAuthOptions) {
           "manus-runtime-user-info",
           JSON.stringify(meQuery.data)
         );
-      } catch {
+      } catch (error) {
         // Storage can be unavailable in private browsing or SSR.
+        console.warn("auth:runtime-user-persist", error);
       }
     }
     return {
