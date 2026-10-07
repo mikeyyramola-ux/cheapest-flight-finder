@@ -42,6 +42,21 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 export async function createApp(): Promise<{ app: Express; server: Server }> {
   const app = express();
   const server = createServer(app);
+  // Security headers on every response (the ASK 130 vercel.json block was inert:
+  // measured live 2026-10-07 that a top-level headers key never reaches a request
+  // behind this file's legacy routes catch-all - trace L571 - so the same approved
+  // set now ships from the one Express app every visitor response passes through).
+  const securityHeaders: Record<string, string> = {
+    "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com https://www.googletagservices.com https://www.googleadservices.com https://googleads.g.doubleclick.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com; connect-src 'self' https://manus-analytics.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://adservice.google.com; worker-src 'self' blob:; media-src 'self'; upgrade-insecure-requests",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  };
+  app.use((_req, res, next) => {
+    for (const [key, value] of Object.entries(securityHeaders)) res.setHeader(key, value);
+    next();
+  });
   const canonicalOrigin = (process.env.CANONICAL_ORIGIN || "https://cheapflights-lx7n3n4y.manus.space").replace(/\/$/, "");
   app.get("/robots.txt", (_req, res) => res.type("text").send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /ops\nSitemap: ${canonicalOrigin}/sitemap.xml\n`));
   // IndexNow key endpoint (env-gated): host {INDEXNOW_KEY}.txt at the site root,
