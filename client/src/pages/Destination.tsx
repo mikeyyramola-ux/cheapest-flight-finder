@@ -30,7 +30,7 @@ function destinationFaqs(dest: Destination) {
     },
     {
       q: `How do I find cheap flights to ${dest.city} on Fareloop?`,
-      a: `Set your origin and ${dest.city} (${dest.code}) as the destination on the Fareloop flight finder, then sort by cheapest total price. Every fare card shows the total price for your travelers plus stops, duration, baggage, and the airline, and you can watch the route's price trend to book when prices sit in their lowest range.`,
+      a: `Set your origin and ${dest.city} (${dest.code}) as the destination on the Fareloop flight finder, then sort by cheapest total price. Every fare card shows the total price for your travelers plus stops, duration, and the airline, with baggage details where provided, and you can watch the route's price trend to book when prices sit in their lowest range.`,
     },
   ];
 }

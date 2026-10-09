@@ -7,7 +7,7 @@ type FaqItem = { q: string; a: string; link?: { href: string; label: string } };
 const FAQ_ITEMS: FaqItem[] = [
   {
     q: "How do I find the cheapest flights?",
-    a: "Search your origin and destination on the Fareloop flight finder, then sort results by cheapest total price. Every fare card shows the total price for your travelers plus stops, duration, baggage, and the airline, so you compare the real cost of the trip instead of a misleading headline fare.",
+    a: "Search your origin and destination on the Fareloop flight finder, then sort results by cheapest total price. Every fare card shows the total price for your travelers plus stops, duration, and the airline, with baggage details where provided, so you compare the real cost of the trip instead of a misleading headline fare.",
   },
   {
     q: "When is the best time to book a cheap flight?",
