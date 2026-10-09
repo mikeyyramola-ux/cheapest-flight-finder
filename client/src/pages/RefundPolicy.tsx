@@ -28,7 +28,7 @@ export default function RefundPolicy() {
           </div>
           <div className="seo-copy">
             <h2>Changed your mind?</h2>
-            <p>Purchases are non-refundable - we do not offer refunds when you change your mind after you buy. If your situation is special, email <a href="mailto:support.fareloop@gmail.com">support.fareloop@gmail.com</a> with the address you signed up with: every case is read individually, and any goodwill refund is granted at management's sole discretion based on the situation.</p>
+            <p>Purchases are non-refundable - we do not offer refunds when you change your mind after you buy. If your situation is special, email <a href="mailto:support@fareloop.in">support@fareloop.in</a> with the address you signed up with: every case is read individually, and any goodwill refund is granted at management's sole discretion based on the situation.</p>
           </div>
           <div className="seo-copy">
             <h2>Billing errors</h2>
