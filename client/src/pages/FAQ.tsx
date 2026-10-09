@@ -26,6 +26,10 @@ const FAQ_ITEMS: FaqItem[] = [
     a: "No. Fareloop never adds a booking markup: you pay whatever the airline or partner site charges at checkout. Partner sites control final taxes, baggage rules, and availability, so always review the final itinerary before paying.",
   },
   {
+    q: "Do the prices include baggage?",
+    a: "The fares we display are the partner's shown price; baggage allowances and fees depend on the airline and fare type and are added at the partner's checkout. Always confirm the final fare, taxes, baggage, itinerary, and fare rules before you pay.",
+  },
+  {
     q: "Are the booking links affiliate links?",
     a: "Yes, some of them are. Fareloop may earn a commission when you open a partner booking page, and it costs you nothing extra. Affiliate revenue keeps the flight finder free and funds route monitoring, price history, and alert tools.",
   },
