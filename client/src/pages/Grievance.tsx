@@ -5,19 +5,21 @@ import { Link } from "wouter";
  * Grievance procedure page (ASK 101). Content mirrors
  * compliance\grievance-procedure.md - keep the two in sync.
  *
- * The three officer fields are the owner's to provide: fill them in and the
- * details appear. Until then the page says so instead of inventing a name.
- * Applicability of the IT Rules 2021 grievance obligation is NOT FOUND IN
- * MANUAL for this service, so nothing here claims statutory status - these
- * are Fareloop's own service targets.
+ * The officer fields are the owner's to provide: fill them in and the
+ * details appear. Name and email published on the owner's word of
+ * 2026-10-10 (external inspection flagged the stale placeholder);
+ * postal address not yet supplied, so it stays hidden rather than
+ * invented. Applicability of the IT Rules 2021 grievance obligation
+ * is NOT FOUND IN MANUAL for this service, so nothing here claims
+ * statutory status - these are Fareloop's own service targets.
  */
 const OFFICER = {
-  name: "",
-  email: "",
+  name: "Mikeyy Ramola",
+  email: "grievance@fareloop.in",
   postal: "",
 };
 
-const officerConfirmed = Boolean(OFFICER.name && OFFICER.email && OFFICER.postal);
+const officerConfirmed = Boolean(OFFICER.name && OFFICER.email);
 
 export default function Grievance() {
   return (
@@ -47,8 +49,12 @@ export default function Grievance() {
                 Grievance Officer: {OFFICER.name}
                 <br />
                 Email: <a href={`mailto:${OFFICER.email}`}>{OFFICER.email}</a>
-                <br />
-                Post: {OFFICER.postal}
+                {OFFICER.postal && (
+                  <>
+                    <br />
+                    Post: {OFFICER.postal}
+                  </>
+                )}
               </p>
             ) : (
               <p>The Grievance Officer&apos;s contact details will be published here once confirmed.</p>

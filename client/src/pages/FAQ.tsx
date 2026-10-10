@@ -61,7 +61,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Which days of the week are the cheapest to fly?",
-    a: "Tuesday, Wednesday, and Saturday departures are consistently the cheapest, because business traffic and weekend leisure demand cluster on Monday, Thursday, Friday, and Sunday. The day you fly matters far more than the day you buy, so if your dates are flexible, move the departure itself before anything else.",
+    a: "Tuesday, Wednesday, and Saturday departures are typically the cheapest — a broad historical pattern, not a guarantee, since the best timing varies by route, season, airline, and demand. Business traffic and weekend leisure demand cluster on Monday, Thursday, Friday, and Sunday, and the day you fly matters far more than the day you buy, so if your dates are flexible, move the departure itself before anything else.",
   },
   {
     q: "Where can I see the cheapest months to fly for each city?",
