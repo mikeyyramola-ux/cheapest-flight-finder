@@ -3,7 +3,10 @@ import { deliverTelegram } from "./telegram";
 
 export const premiumPlanPayPal = {
   name: "Premium Member (PayPal)",
-  price: 9.00,
+  // Advertised fallback. The live plan is read at request time and wins whenever
+  // it can be reached - this figure only shows if that read fails, so it has to
+  // match what the attached plan actually charges or the drift comes back.
+  price: 9.99,
   interval: "month",
   features: ["Instant price-drop alerts", "Historical price trends", "Unlimited route tracking"],
 };
