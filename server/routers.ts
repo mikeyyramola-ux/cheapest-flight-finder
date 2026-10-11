@@ -7,7 +7,7 @@ import { adminProcedure, publicProcedure, rateLimited, router } from "./_core/tr
 import { DAILY_SEARCH_LIMIT } from "./_core/rate-limit";
 import { addTrackedRoute, ensureHistoryLoaded, ensureRoutesHydrated, getRouteHistory, getSeedHistory, listTrackedRoutes, removeTrackedRoute, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout, premiumPlan } from "./stripe";
-import { createPayPalCheckout, getPayPalSubscription, handlePayPalWebhook, premiumPlanPayPal } from "./paypal";
+import { createPayPalCheckout, getPayPalSubscription, getPremiumPlanPayPalLive, handlePayPalWebhook } from "./paypal";
 import { getPartnerHealthReport } from "./partner-health";
 
 const searchInput = z.object({
@@ -122,7 +122,7 @@ export const appRouter = router({
   }),
   billing: router({
     pricing: publicProcedure.query(() => premiumPlan),
-    pricingPayPal: publicProcedure.query(() => premiumPlanPayPal),
+    pricingPayPal: publicProcedure.query(() => getPremiumPlanPayPalLive()),
     checkout: publicProcedure.input(z.object({ route: z.string().optional() })).mutation(async ({ ctx, input }) => createPremiumCheckout({ origin: input.route ?? "dashboard", userId: ctx.user?.id, email: ctx.user?.email, name: ctx.user?.name })),
     checkoutPayPal: publicProcedure.input(z.object({ route: z.string().optional() })).mutation(async ({ ctx, input }) => createPayPalCheckout({ origin: input.route ?? "dashboard", userId: ctx.user?.id, email: ctx.user?.email, name: ctx.user?.name })),
     /**

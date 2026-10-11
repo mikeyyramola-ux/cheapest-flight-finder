@@ -62,6 +62,56 @@ async function paypalFetch(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
+// --- Live plan price --------------------------------------------------------
+// The advertised price and the price the attached PayPal plan actually charges
+// are two different things, and only the second one ever reaches a customer's
+// card. They can drift - a plan is created once and repricing it means a NEW
+// plan - so the paywall reads the real number from PayPal and shows that,
+// rather than printing a figure nobody has verified. Any failure falls back to
+// the advertised price, so this can never take checkout down.
+let planPriceCache: { value: number; currency: string; fetchedAt: number } | null = null;
+const PLAN_PRICE_CACHE_MS = 10 * 60 * 1000;
+
+function readPlanPrice(plan: any): { value: number; currency: string } | null {
+  // Shapes differ between single-price plans and pricing-tier plans.
+  const candidates: any[] = [
+    plan?.pricing?.summary?.price,
+    plan?.pricing?.total_interval_amount,
+    plan?.pricing?.price,
+  ];
+  for (const candidate of candidates) {
+    const value = Number(candidate?.value);
+    const currency = String(candidate?.currency_code ?? "");
+    if (Number.isFinite(value) && value > 0 && currency) return { value, currency };
+  }
+  const tier = Array.isArray(plan?.pricing_tiers) ? plan.pricing_tiers[0] : undefined;
+  const fixed = tier?.pricing_scheme?.fixed_price;
+  const value = Number(fixed?.value);
+  const currency = String(fixed?.currency_code ?? "");
+  if (Number.isFinite(value) && value > 0 && currency) return { value, currency };
+  return null;
+}
+
+export async function getPremiumPlanPayPalLive() {
+  const base = { ...premiumPlanPayPal };
+  const fallback = { ...base, currency: "USD", priceSource: "advertised" as const, chargeVerified: false };
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET || !PAYPAL_PREMIUM_PLAN_ID) return fallback;
+  try {
+    if (planPriceCache && Date.now() - planPriceCache.fetchedAt < PLAN_PRICE_CACHE_MS) {
+      return { ...base, price: planPriceCache.value, currency: planPriceCache.currency,
+               priceSource: "plan" as const, chargeVerified: true };
+    }
+    const plan = await paypalFetch(`/v1/billing/plans/${encodeURIComponent(PAYPAL_PREMIUM_PLAN_ID)}`);
+    const parsed = readPlanPrice(plan);
+    if (!parsed) return fallback;
+    planPriceCache = { value: parsed.value, currency: parsed.currency, fetchedAt: Date.now() };
+    return { ...base, price: parsed.value, currency: parsed.currency,
+             priceSource: "plan" as const, chargeVerified: true };
+  } catch {
+    return fallback;
+  }
+}
+
 export async function createPayPalCheckout(input: {
   origin: string;
   userId?: number;
