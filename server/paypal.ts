@@ -94,21 +94,25 @@ function readPlanPrice(plan: any): { value: number; currency: string } | null {
 
 export async function getPremiumPlanPayPalLive() {
   const base = { ...premiumPlanPayPal };
-  const fallback = { ...base, currency: "USD", priceSource: "advertised" as const, chargeVerified: false };
-  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET || !PAYPAL_PREMIUM_PLAN_ID) return fallback;
+  const fallback = (priceCheck: string) =>
+    ({ ...base, currency: "USD", priceSource: "advertised" as const,
+        chargeVerified: false, priceCheck });
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET || !PAYPAL_PREMIUM_PLAN_ID) return fallback("no-credentials");
   try {
     if (planPriceCache && Date.now() - planPriceCache.fetchedAt < PLAN_PRICE_CACHE_MS) {
       return { ...base, price: planPriceCache.value, currency: planPriceCache.currency,
-               priceSource: "plan" as const, chargeVerified: true };
+               priceSource: "plan" as const, chargeVerified: true, priceCheck: "cache" };
     }
     const plan = await paypalFetch(`/v1/billing/plans/${encodeURIComponent(PAYPAL_PREMIUM_PLAN_ID)}`);
     const parsed = readPlanPrice(plan);
-    if (!parsed) return fallback;
+    // A status code and a shape verdict only - never the response body.
+    if (!parsed) return fallback("unparsed");
     planPriceCache = { value: parsed.value, currency: parsed.currency, fetchedAt: Date.now() };
     return { ...base, price: parsed.value, currency: parsed.currency,
-             priceSource: "plan" as const, chargeVerified: true };
-  } catch {
-    return fallback;
+             priceSource: "plan" as const, chargeVerified: true, priceCheck: "ok" };
+  } catch (error) {
+    const match = /PayPal API error (\d{3})/.exec(error instanceof Error ? error.message : "");
+    return fallback(match ? `http-${match[1]}` : "exception");
   }
 }
 
