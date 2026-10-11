@@ -1,4 +1,4 @@
-import { loadLiveHistory, loadPersistedRoutes, persistRoute, recordPricePoint, removePersistedRoute, type PersistableRoute } from "./price-store";
+import { loadLiveHistory, loadPersistedRoutes, loadPersistedRoutesForUser, persistRoute, recordPricePoint, removePersistedRoute, removePersistedRouteForUser, type PersistableRoute } from "./price-store";
 import { chargeQuota, loadQuotaStatus, scrappaCombined } from "./quota";
 import { httpReason, recordFallThrough, recordProviderCall, thrownReason, type ProviderCall } from "./provider-obs";
 import { deliverTelegram, type NotificationResult } from "./telegram";
@@ -33,6 +33,8 @@ export type FlightOffer = {
 
 export type TrackedRoute = {
   id: string;
+  /** GO 167 - owning customer. Null only for the pre-ownership demo seed. */
+  userId?: number | null;
   origin: string;
   destination: string;
   departDate: string;
@@ -155,6 +157,7 @@ function sinceLabel(at: Date): string {
 function rowToRoute(row: TrackedRouteRow): TrackedRoute {
   return {
     id: row.id,
+    userId: row.userId ?? null,
     origin: row.origin,
     destination: row.destination,
     departDate: row.departDate,
@@ -173,6 +176,7 @@ function rowToRoute(row: TrackedRouteRow): TrackedRoute {
 function toPersistable(route: TrackedRoute, lastCheckedAt: Date | null): PersistableRoute {
   return {
     id: route.id,
+    userId: route.userId ?? null,
     origin: route.origin,
     destination: route.destination,
     departDate: route.departDate,
@@ -816,6 +820,45 @@ export async function addTrackedRoute(input: Omit<TrackedRoute, "id" | "currentP
   trackedRoutes.set(id, route);
   await persistRoute(toPersistable(route, new Date()));
   return route;
+}
+
+/**
+ * GO 167 - the caller's own watch list.
+ *
+ * Reads storage scoped by owner rather than filtering the shared Map, because the
+ * Map holds every customer's routes in one process. Storage is authoritative: a
+ * cold start has an empty Map, and filtering it would quietly return nothing for a
+ * paying customer who had done nothing wrong.
+ */
+export async function listTrackedRoutesForUser(userId: number): Promise<TrackedRoute[]> {
+  const rows = await loadPersistedRoutesForUser(userId);
+  // Hydrate the cache from the same rows so the in-memory view and the database
+  // cannot disagree about what this customer owns.
+  for (const row of rows) trackedRoutes.set(row.id, rowToRoute(row));
+  return rows.map(rowToRoute);
+}
+
+/**
+ * GO 167 - deletes a route only when it belongs to the caller.
+ *
+ * The Map delete is deliberately gated on the same ownership fact the database
+ * enforces. Without that gate, a caller who guessed an id would see `true` and the
+ * in-memory copy would vanish for the real owner until the next cold start, even
+ * though the row survived.
+ */
+export async function removeTrackedRouteForUser(id: string, userId: number): Promise<boolean> {
+  await ensureRoutesHydrated();
+  const owned = trackedRoutes.get(id);
+  if (!owned || (owned.userId ?? null) !== userId) {
+    // Still ask storage - the Map may be incomplete on a cold start, and storage
+    // is the only authority on ownership.
+    const removed = await removePersistedRouteForUser(id, userId);
+    if (removed) trackedRoutes.delete(id);
+    return removed;
+  }
+  trackedRoutes.delete(id);
+  await removePersistedRouteForUser(id, userId);
+  return true;
 }
 
 export async function removeTrackedRoute(id: string) {

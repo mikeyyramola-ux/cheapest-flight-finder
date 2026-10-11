@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic } from "./render";
 import { handleStripeWebhook } from "../stripe";
 import { handlePayPalWebhook } from "../paypal";
+import { ensureSchema } from "../migrate";
 import { monitorPartnersHandler, scanFlightDealsHandler } from "../scheduled";
 import { opsQuotasHandler } from "../ops";
 import { pageViewPixelHandler, pageViewReadHandler } from "../pageview";
@@ -58,6 +59,13 @@ export async function createApp(): Promise<{ app: Express; server: Server }> {
     next();
   });
   const canonicalOrigin = (process.env.CANONICAL_ORIGIN || "https://cheapflights-lx7n3n4y.manus.space").replace(/\/$/, "");
+  // GO 167 - apply additive schema changes (trackedRoute.userId, users.passwordHash)
+  // once per instance. `db:push` is not part of the Vercel build, so without this a
+  // deploy would ship code referencing columns the live table lacks, and the first
+  // customer to save a route would 500. Deliberately not awaited: schema work must
+  // never delay a page render, and every call site that needs a column awaits the
+  // same memoised promise first anyway.
+  ensureSchema().catch(() => { /* already reported by the migration itself */ });
   app.get("/robots.txt", (_req, res) => res.type("text").send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /ops\nSitemap: ${canonicalOrigin}/sitemap.xml\n`));
   // IndexNow key endpoint (env-gated): host {INDEXNOW_KEY}.txt at the site root,
   // then submit URLs via https://api.indexnow.org/indexnow — see docs-seo-growth.md.

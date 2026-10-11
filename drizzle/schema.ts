@@ -17,6 +17,23 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  /**
+   * scrypt hash for first-party email/password login, stored as
+   * `scrypt$N$r$p$salt$hash`. Null for OAuth-only users, who authenticate through
+   * the platform instead. Never a reversible or shared secret: each password is
+   * salted per user, and the params ride along in the string so a future cost
+   * increase can re-hash on next login without a migration.
+   */
+  passwordHash: text("passwordHash"),
+  /**
+   * Telegram chat id that price-drop alerts are delivered to.
+   *
+   * Captured at signup so an alert reaches the CUSTOMER rather than the owner's
+   * inbox - without it, `sendPriceDropNotification` has only one destination and
+   * every subscriber's alert lands in the owner's chat. Nullable because a user
+   * may register before linking Telegram.
+   */
+  telegramChatId: varchar("telegramChatId", { length: 64 }),
   stripeCustomerId: varchar("stripeCustomerId", { length: 128 }),
   stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 128 }),
   paypalSubscriptionId: varchar("paypalSubscriptionId", { length: 128 }),
@@ -57,6 +74,16 @@ export const partnerHealth = mysqlTable("partnerHealth", {
  */
 export const trackedRoute = mysqlTable("trackedRoute", {
   id: varchar("id", { length: 64 }).primaryKey(),
+  /**
+   * Owner of this route.
+   *
+   * Nullable only for rows written before ownership existed (the demo seed), so a
+   * migration can add the column without rewriting history. Every route created
+   * through the API carries a real userId, and every read is scoped by it: without
+   * this column `listTrackedRoutes` returned the whole table to any caller, so two
+   * subscribers could see - and `remove` - each other's watch lists.
+   */
+  userId: int("userId"),
   origin: varchar("origin", { length: 8 }).notNull(),
   destination: varchar("destination", { length: 8 }).notNull(),
   departDate: varchar("departDate", { length: 10 }).notNull(),
@@ -70,6 +97,9 @@ export const trackedRoute = mysqlTable("trackedRoute", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({
   odIdx: index("trackedRoute_od_idx").on(table.origin, table.destination),
+  // Every customer-facing read filters by owner, so this index is the difference
+  // between a lookup and a table scan as the route count grows.
+  userIdIdx: index("trackedRoute_userId_idx").on(table.userId),
 }));
 
 /**

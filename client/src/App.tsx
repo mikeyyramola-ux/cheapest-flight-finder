@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/react";
 import DestinationPage, { DestinationHub } from "@/pages/Destination";
 import FAQ from "@/pages/FAQ";
 import Grievance from "@/pages/Grievance";
+import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
 import Ops from "@/pages/Ops";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -18,7 +19,7 @@ function Router() {
   return (
     <PageTransition>
       <NavSearchDialog />
-      <Switch><Route path="/" component={Home} /><Route path="/tracker" component={Home} /><Route path="/paywall" component={Home} /><Route path="/faq" component={FAQ} /><Route path="/grievance" component={Grievance} /><Route path="/refund-policy" component={RefundPolicy} /><Route path="/flights-to" component={DestinationHub} /><Route path="/flights-to/:slug" component={DestinationPage} /><Route path="/ops" component={Ops} /><Route path="/404" component={NotFound} /><Route component={NotFound} /></Switch>
+      <Switch><Route path="/" component={Home} /><Route path="/tracker" component={Home} /><Route path="/paywall" component={Home} /><Route path="/faq" component={FAQ} /><Route path="/login" component={Login} /><Route path="/grievance" component={Grievance} /><Route path="/refund-policy" component={RefundPolicy} /><Route path="/flights-to" component={DestinationHub} /><Route path="/flights-to/:slug" component={DestinationPage} /><Route path="/ops" component={Ops} /><Route path="/404" component={NotFound} /><Route component={NotFound} /></Switch>
     </PageTransition>
   );
 }

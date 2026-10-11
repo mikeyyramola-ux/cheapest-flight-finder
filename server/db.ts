@@ -1,5 +1,5 @@
 import { warnAndPage } from "./alerts";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -88,6 +88,81 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Look up a user by email for first-party password login.
+ *
+ * `email` is not UNIQUE in this schema (OAuth providers may hand back several
+ * identities for one address), so this returns the most recently created match
+ * rather than asserting there is exactly one. Login additionally keys the session
+ * on `openId`, which IS unique, so a duplicate address cannot merge two accounts.
+ */
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) {
+    warnAndPage("db:get-user-by-email", "[Database] Cannot get user by email: database not available");
+    return undefined;
+  }
+
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .orderBy(desc(users.createdAt))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Creates a first-party email/password user.
+ *
+ * The insert keys on the derived `openId` (see `deriveOpenId`), which carries a
+ * UNIQUE constraint - so the database, not application code, is what actually
+ * prevents two people registering the same address. A concurrent duplicate raises
+ * from the driver and is reported to the caller as "already registered".
+ */
+export async function createPasswordUser(input: {
+  openId: string;
+  email: string;
+  name?: string | null;
+  passwordHash: string;
+  telegramChatId?: string | null;
+}): Promise<{ ok: boolean; alreadyRegistered?: boolean }> {
+  const db = await getDb();
+  if (!db) {
+    warnAndPage("db:create-user", "[Database] Cannot create user: database not available");
+    return { ok: false };
+  }
+
+  try {
+    await db.insert(users).values({
+      openId: input.openId,
+      email: input.email,
+      name: input.name ?? null,
+      passwordHash: input.passwordHash,
+      telegramChatId: input.telegramChatId ?? null,
+      loginMethod: "password",
+      subscriptionStatus: "free",
+    });
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // 1062 = MySQL duplicate entry. The unique openId is derived from the email,
+    // so this is precisely the "address already registered" case.
+    if (/duplicate|1062/i.test(message)) return { ok: false, alreadyRegistered: true };
+    warnAndPage("db:create-user", "[Database] createPasswordUser failed:", message);
+    return { ok: false };
+  }
+}
+
+/** Stores a captured Telegram chat id so alerts reach the customer, not the owner. */
+export async function setTelegramChatId(userId: number, chatId: string) {
+  const db = await getDb();
+  if (!db) return false;
+  await db.update(users).set({ telegramChatId: chatId }).where(eq(users.id, userId));
+  return true;
 }
 
 /**

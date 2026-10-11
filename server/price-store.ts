@@ -2,6 +2,7 @@ import { warnAndPage } from "./alerts";
 import { and, desc, eq } from "drizzle-orm";
 import { priceHistory, trackedRoute, type PriceHistoryRow, type TrackedRouteRow } from "../drizzle/schema";
 import { getDb } from "./db";
+import { ensureSchema } from "./migrate";
 
 /**
  * Durable storage behind tracked routes and price history (TiDB Serverless).
@@ -38,6 +39,9 @@ export type PriceObservation = {
 /** Everything needed to restore a tracked route from storage. */
 export type PersistableRoute = {
   id: string;
+  /** GO 167 - the customer this route belongs to. Persisted with the row so a
+   *  cold start restores each person's list to them, not to everyone. */
+  userId?: number | null;
   origin: string;
   destination: string;
   departDate: string;
@@ -60,12 +64,35 @@ export async function loadPersistedRoutes(): Promise<TrackedRouteRow[]> {
   }
 }
 
+/**
+ * GO 167 - one customer's routes, and only theirs.
+ *
+ * Filtering happens in SQL rather than after the fetch, so a subscriber's watch
+ * list never travels through memory that also holds other people's. `userId` is a
+ * number bound by the driver, so this is not a place for string interpolation.
+ */
+export async function loadPersistedRoutesForUser(userId: number): Promise<TrackedRouteRow[]> {
+  try {
+    const db = await getDb();
+    if (!db) return [];
+    return await db.select().from(trackedRoute).where(eq(trackedRoute.userId, userId));
+  } catch (error) {
+    note("loadPersistedRoutesForUser", error);
+    return [];
+  }
+}
+
 export async function persistRoute(route: PersistableRoute): Promise<boolean> {
   try {
     const db = await getDb();
     if (!db) return false;
+    // GO 167: this write touches `userId`, which the runtime migration adds. Awaiting
+    // it here means the first save after a deploy cannot race the ALTER - the memoised
+    // promise is already resolved for every later call, so this costs nothing.
+    await ensureSchema();
     const values = {
       id: route.id,
+      userId: route.userId ?? null,
       origin: route.origin.toUpperCase(),
       destination: route.destination.toUpperCase(),
       departDate: route.departDate,
@@ -81,6 +108,7 @@ export async function persistRoute(route: PersistableRoute): Promise<boolean> {
       .values(values)
       .onDuplicateKeyUpdate({
         set: {
+          userId: values.userId,
           origin: values.origin,
           destination: values.destination,
           departDate: values.departDate,
@@ -107,6 +135,33 @@ export async function removePersistedRoute(id: string): Promise<boolean> {
     return true;
   } catch (error) {
     note("removePersistedRoute", error);
+    return false;
+  }
+}
+
+/**
+ * GO 167 - deletes a route ONLY if it belongs to the caller.
+ *
+ * The owner check lives in the WHERE clause, so ownership and deletion are one
+ * statement with no window between them. This is the fix for the hole where any
+ * subscriber could empty any other subscriber's watch list by guessing an id: an
+ * id that is not the caller's simply matches no row, and the caller is told
+ * "not found" rather than "forbidden" - because distinguishing those two answers
+ * would confirm a stranger's route id exists.
+ */
+export async function removePersistedRouteForUser(id: string, userId: number): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const result = await db
+      .delete(trackedRoute)
+      .where(and(eq(trackedRoute.id, id), eq(trackedRoute.userId, userId)));
+    // mysql2 reports affected rows; 0 means the row was absent OR not ours, which
+    // the caller is deliberately unable to tell apart.
+    const affected = (result as unknown as { affectedRows?: number })?.affectedRows;
+    return typeof affected === "number" ? affected > 0 : false;
+  } catch (error) {
+    note("removePersistedRouteForUser", error);
     return false;
   }
 }

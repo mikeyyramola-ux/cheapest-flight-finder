@@ -43,6 +43,14 @@ const ROUTE_META: Record<string, HeadMeta> = {
     description: "Answers on finding cheap flights, how price-drop alerts work, route coverage, Premium pricing, and transparent affiliate links.",
     canonicalPath: "/faq",
   },
+  // GO 167 - account sign-in. Deliberately NOT in the sitemap: it is a utility
+  // page with no indexable content, and listing it would dilute the destination
+  // pages that actually earn search traffic.
+  "/login": {
+    title: "Sign In or Create an Account | Fareloop",
+    description: "Sign in to Fareloop to keep your watched routes, price history and Premium plan attached to your account across every device.",
+    canonicalPath: "/login",
+  },
   "/grievance": {
     title: "Grievance Procedure & Grievance Officer | Fareloop",
     description: "Raise a complaint with Fareloop: we acknowledge within 24 hours, resolve within 15 days, with a direct escalation path to the Grievance Officer.",
