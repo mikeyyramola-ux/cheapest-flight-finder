@@ -73,22 +73,36 @@ let planPriceCache: { value: number; currency: string; fetchedAt: number } | nul
 const PLAN_PRICE_CACHE_MS = 10 * 60 * 1000;
 
 function readPlanPrice(plan: any): { value: number; currency: string } | null {
-  // Shapes differ between single-price plans and pricing-tier plans.
+  // The shape differs by how the plan was created: subscription plans carry the
+  // price inside billing_cycles, single-price and tier plans under `pricing`.
+  // All known shapes are tried, and a MONTH cycle is preferred when several
+  // exist, so a plan with a trial cycle cannot report 0.00 as its price.
+  const accept = (fixed: any) => {
+    const value = Number(fixed?.value);
+    const currency = String(fixed?.currency_code ?? "");
+    return Number.isFinite(value) && value > 0 && currency ? { value, currency } : null;
+  };
   const candidates: any[] = [
     plan?.pricing?.summary?.price,
     plan?.pricing?.total_interval_amount,
     plan?.pricing?.price,
   ];
   for (const candidate of candidates) {
-    const value = Number(candidate?.value);
-    const currency = String(candidate?.currency_code ?? "");
-    if (Number.isFinite(value) && value > 0 && currency) return { value, currency };
+    const parsed = accept(candidate);
+    if (parsed) return parsed;
   }
-  const tier = Array.isArray(plan?.pricing_tiers) ? plan.pricing_tiers[0] : undefined;
-  const fixed = tier?.pricing_scheme?.fixed_price;
-  const value = Number(fixed?.value);
-  const currency = String(fixed?.currency_code ?? "");
-  if (Number.isFinite(value) && value > 0 && currency) return { value, currency };
+  const cycles: any[] = Array.isArray(plan?.billing_cycles) ? plan.billing_cycles : [];
+  const ordered = [...cycles].sort((a, b) =>
+    (b?.pricing_scheme?.fixed_price ? 1 : 0) - (a?.pricing_scheme?.fixed_price ? 1 : 0));
+  for (const cycle of ordered) {
+    const parsed = accept(cycle?.pricing_scheme?.fixed_price);
+    if (parsed && String(cycle?.interval_unit ?? "").toUpperCase() !== "DAY") return parsed;
+  }
+  const tiers: any[] = Array.isArray(plan?.pricing_tiers) ? plan.pricing_tiers : [];
+  for (const tier of tiers) {
+    const parsed = accept(tier?.pricing_scheme?.fixed_price);
+    if (parsed) return parsed;
+  }
   return null;
 }
 
