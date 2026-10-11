@@ -2,11 +2,21 @@ import { warnAndPage } from "./alerts";
 import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
+import { ensureSchema } from "./migrate";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _schemaReady: Promise<unknown> | null = null;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
+//
+// GO 167: the instance is only handed back AFTER the additive migration has run.
+// This matters because Drizzle builds its SELECT list from the TypeScript schema,
+// so a query as ordinary as `select ... from users` names `passwordHash` - and
+// would fail against a table that predates it. Awaiting here means every caller,
+// including `ctx.user` resolution on the hot path, sees a table that matches the
+// code. The promise is memoised, so this costs one probe round trip per cold
+// start rather than one per request.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -16,6 +26,15 @@ export async function getDb() {
       _db = null;
     }
   }
+  if (!_db) return null;
+
+  if (!_schemaReady) {
+    _schemaReady = ensureSchema(_db).catch(error => {
+      warnAndPage("db:schema", "[Database] Schema migration failed:", error instanceof Error ? error.message : String(error));
+    });
+  }
+  await _schemaReady;
+
   return _db;
 }
 

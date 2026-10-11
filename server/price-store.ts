@@ -2,7 +2,6 @@ import { warnAndPage } from "./alerts";
 import { and, desc, eq } from "drizzle-orm";
 import { priceHistory, trackedRoute, type PriceHistoryRow, type TrackedRouteRow } from "../drizzle/schema";
 import { getDb } from "./db";
-import { ensureSchema } from "./migrate";
 
 /**
  * Durable storage behind tracked routes and price history (TiDB Serverless).
@@ -86,10 +85,6 @@ export async function persistRoute(route: PersistableRoute): Promise<boolean> {
   try {
     const db = await getDb();
     if (!db) return false;
-    // GO 167: this write touches `userId`, which the runtime migration adds. Awaiting
-    // it here means the first save after a deploy cannot race the ALTER - the memoised
-    // promise is already resolved for every later call, so this costs nothing.
-    await ensureSchema();
     const values = {
       id: route.id,
       userId: route.userId ?? null,
