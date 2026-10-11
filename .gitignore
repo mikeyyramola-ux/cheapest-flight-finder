@@ -118,3 +118,4 @@ client/public/__manus__/version.json
 .vercel
 .indexnow-key.txt
 deploy.log
+.env*
