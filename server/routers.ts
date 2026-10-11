@@ -9,6 +9,7 @@ import { ONE_YEAR_MS } from "@shared/const";
 import { sdk } from "./_core/sdk";
 import { createPasswordUser, getUserByEmail, getUserByOpenId, upsertUser } from "./db";
 import { assessPassword, deriveOpenId, hashPassword, normalizeEmail, verifyPassword } from "./password";
+import { ENV } from "./_core/env";
 import { addTrackedRoute, ensureHistoryLoaded, ensureRoutesHydrated, getRouteHistory, getSeedHistory, listTrackedRoutesForUser, removeTrackedRouteForUser, scanTrackedRoutes, searchFlights, sendPriceDropNotification } from "./flight-data";
 import { createPremiumCheckout, premiumPlan } from "./stripe";
 import { createPayPalCheckout, getPayPalSubscription, getPremiumPlanPayPalLive, handlePayPalWebhook } from "./paypal";
@@ -43,6 +44,26 @@ const loginInput = z.object({
   email: z.string().trim().min(3).max(320).includes("@"),
   password: z.string().min(1).max(200),
 });
+
+/**
+ * Sessions are signed with JWT_SECRET. When it is absent, `jose` refuses to sign
+ * with "Zero-length key is not supported" - a cryptic 500 that tells the customer
+ * nothing and looks like a bug in login. Checking here turns it into a clear,
+ * actionable answer instead. This is an environment problem, never a customer one,
+ * so the message never blames their credentials.
+ *
+ * It also means the OAuth path could never have worked either: the same secret
+ * signs those tokens. Worth stating plainly, because it is easy to believe auth
+ * was configured when it was only ever half-wired.
+ */
+function assertSessionSecret() {
+  if (!ENV.cookieSecret) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Sign-in is not configured on the server yet (JWT_SECRET is missing). This is not a problem with your account.",
+    });
+  }
+}
 
 /**
  * Rate caps for the two endpoints worth attacking.
@@ -133,6 +154,7 @@ export const appRouter = router({
     register: publicProcedure
       .input(registerInput)
       .mutation(async ({ ctx, input }) => {
+        assertSessionSecret();
         if (!hitRateLimit(`auth:register:${clientIp(ctx.req.headers)}`, AUTH_RATE_MAX, AUTH_RATE_WINDOW_MS)) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many attempts. Please wait a minute and try again." });
         }
@@ -173,6 +195,7 @@ export const appRouter = router({
     login: publicProcedure
       .input(loginInput)
       .mutation(async ({ ctx, input }) => {
+        assertSessionSecret();
         const ip = clientIp(ctx.req.headers);
         if (!hitRateLimit(`auth:login:${ip}`, AUTH_RATE_MAX, AUTH_RATE_WINDOW_MS)) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many attempts. Please wait a minute and try again." });
