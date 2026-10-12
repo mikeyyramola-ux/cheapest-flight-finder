@@ -41,6 +41,15 @@ export default function Login() {
   const registerMutation = trpc.auth.register.useMutation();
   const loginMutation = trpc.auth.login.useMutation();
 
+  // The bot's PUBLIC username, resolved server-side so the token never reaches the
+  // browser. Telegram only lets a bot message a chat that has already pressed Start,
+  // so the sign-up copy has to send the customer to the bot first - otherwise their
+  // stored chat id produces a 403 and the alert cannot reach them. Null is expected
+  // and handled: the copy degrades to plain wording rather than hiding the step.
+  const botQuery = trpc.system.telegramBotUsername.useQuery(undefined, { retry: false });
+  const botUsername = botQuery.data?.username ?? null;
+  const botLink = botUsername ? `https://t.me/${botUsername}` : null;
+
   const switchMode = (next: Mode) => {
     setMode(next);
     setInlineError(null);
@@ -190,6 +199,35 @@ export default function Login() {
                   <span style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <ShieldCheck size={14} aria-hidden /> Telegram chat id <span style={{ opacity: 0.5 }}>(optional)</span>
                   </span>
+
+                  {/* Two steps, in the order Telegram actually requires them.
+                      Pressing Start is NOT optional polish: a bot may only message a
+                      chat that has already started a conversation, so skipping it
+                      means the stored chat id produces a 403 and the alert never
+                      arrives. The link is only rendered once the server has resolved
+                      the bot's public username - a dead or guessed t.me link would be
+                      worse than no link at all. */}
+                  <div style={startStepStyle}>
+                    <p style={{ margin: "0 0 8px", fontSize: 13, opacity: 0.85 }}>
+                      <strong>Step 1 — open our bot and press Start.</strong>{" "}
+                      Telegram only permits a bot to message you once you have started a
+                      conversation with it, so this step is required for alerts to arrive.
+                    </p>
+                    {botLink ? (
+                      <a href={botLink} target="_blank" rel="noopener noreferrer" className="primary-cta small" style={{ display: "inline-flex" }}>
+                        Open the Fareloop bot on Telegram <ArrowRight size={14} />
+                      </a>
+                    ) : (
+                      <p style={{ margin: 0, fontSize: 12, opacity: 0.5 }}>
+                        Search for <strong>Fareloop</strong> in Telegram, open the bot and press Start.
+                      </p>
+                    )}
+
+                    <p style={{ margin: "12px 0 8px", fontSize: 13, opacity: 0.85 }}>
+                      <strong>Step 2 — paste your chat id below.</strong>
+                    </p>
+                  </div>
+
                   <input
                     type="text"
                     value={telegramChatId}
@@ -199,7 +237,7 @@ export default function Login() {
                     style={fieldStyle}
                   />
                   <span style={{ display: "block", marginTop: 6, fontSize: 12, opacity: 0.5 }}>
-                    Price-drop alerts are sent on Telegram, so we need a chat id to reach you. You can add it later - your account works without it.
+                    Message <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" style={{ color: "#b9ff98" }}>@userinfobot</a> on Telegram and it will reply with your id. You can add it later — your account works without it.
                   </span>
                 </label>
               )}
@@ -215,6 +253,24 @@ export default function Login() {
                 {!busy && <ArrowRight size={16} />}
               </button>
             </form>
+
+            {/* Sign-in mode has no chat-id field, so this is the only place a
+                returning customer can be told. Same 403 applies to them: an account
+                created before they ever pressed Start will silently receive nothing.
+                Kept to one quiet line so it informs without nagging on every visit. */}
+            {mode === "signin" && (
+              <div style={{ ...startStepStyle, marginTop: 18 }}>
+                <p style={{ margin: 0, fontSize: 13, opacity: 0.85 }}>
+                  <strong>Not receiving price alerts?</strong>{" "}
+                  Telegram only allows a bot to message you after you have pressed Start on it.
+                  {botLink ? (
+                    <>{" "}<a href={botLink} target="_blank" rel="noopener noreferrer" style={{ color: "#b9ff98" }}>Open the Fareloop bot</a> and press Start.</>
+                  ) : (
+                    <> Search for <strong>Fareloop</strong> in Telegram, open the bot and press Start.</>
+                  )}
+                </p>
+              </div>
+            )}
 
             <p style={{ marginTop: 18, fontSize: 13, opacity: 0.6 }}>
               {mode === "register" ? (
@@ -242,6 +298,16 @@ const fieldStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.05)",
   color: "#fff",
   fontSize: 14,
+};
+
+/** Frames the two-step Telegram instruction so it reads as a sequence, not as
+ *  helper text. Deliberately quiet - it must not out-shout the field it explains. */
+const startStepStyle: React.CSSProperties = {
+  marginBottom: 10,
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(185,255,152,0.22)",
+  background: "rgba(185,255,152,0.05)",
 };
 
 const linkButtonStyle: React.CSSProperties = {

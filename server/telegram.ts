@@ -58,3 +58,53 @@ export async function deliverTelegram(message: string, recipientChatId?: string 
     return { channel: "Telegram", message, delivered: false, reason: error instanceof Error ? error.message : String(error) };
   }
 }
+
+/**
+ * The bot's PUBLIC username, for building a t.me link the customer can tap.
+ *
+ * A bot can only message a chat that has already started a conversation with it,
+ * so the sign-up page has to send the customer to the bot and have them press
+ * Start - otherwise their stored chat id produces a 403 and the alert cannot
+ * reach them. That instruction is useless without a link.
+ *
+ * The username is derived here rather than hardcoded because it is the SERVER's
+ * credential that identifies the bot, not the browser's: getMe is called with the
+ * token this process already holds, and only the PUBLIC username field comes back.
+ * The token is never sent to the client and never returned. A hardcoded name would
+ * silently break if the bot were ever renamed.
+ *
+ * Cached in-module. A cold serverless instance pays one getMe call; every later
+ * sign-up page view on that instance is free. A failure returns null rather than
+ * throwing - a missing link degrades the sign-up copy, it must never break the
+ * page that is trying to create an account.
+ */
+let botUsernameCache: string | null | undefined;
+
+export async function getTelegramBotUsername(): Promise<string | null> {
+  if (botUsernameCache !== undefined) return botUsernameCache;
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    botUsernameCache = null;
+    return null;
+  }
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+      signal: typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(5_000) : undefined,
+    });
+    if (!res.ok) {
+      botUsernameCache = null;
+      return null;
+    }
+    const body = (await res.json()) as { ok?: boolean; result?: { username?: string } };
+    // Only the public username leaves this function. The token that got us here
+    // stays inside this process.
+    const username = typeof body?.result?.username === "string" ? body.result.username.trim() : "";
+    botUsernameCache = username || null;
+    return botUsernameCache;
+  } catch {
+    botUsernameCache = null;
+    return null;
+  }
+}
