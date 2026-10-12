@@ -1,20 +1,21 @@
 #!/usr/bin/env node
 /**
- * SANDBOX PROVISIONING - run this ONCE, locally, before the sandbox test.
+ * SANDBOX PROVISIONING + VERCEL CONFIGURATION - run this ONCE, locally.
  *
  * WHY THIS EXISTS
  * ---------------
  * PayPal's Developer Dashboard has no UI for creating a billing plan or a
  * webhook. Both are API-only. Rather than walk you through an API explorer that
- * hides half the fields, this does the three calls in order and prints exactly
- * the two IDs you need to paste into Vercel.
+ * hides half the fields, this does the three calls in order, then writes all five
+ * PayPal environment variables into Vercel for you - so you never have to copy a
+ * value between two windows, which is exactly where mistakes happen.
  *
  * SAFETY
  * ------
  * The base URL is HARDCODED to the sandbox host. This script cannot touch your
  * live account or take real money, whatever environment variables are set.
- * Your secret is read from your own terminal and is never printed or written
- * to disk.
+ * Your secret is read from your own terminal, handed straight to the Vercel CLI
+ * on stdin, and is never printed and never written to disk.
  *
  * USAGE
  * -----
@@ -24,7 +25,12 @@
  *
  * Optionally pass your webhook URL:
  *   node scripts/sandbox-provision.mjs https://fareloop.in/api/paypal/webhook
+ *
+ * MUST BE RUN FROM THE LINKED REPO (cff-live), so the Vercel CLI knows which
+ * project to configure.
  */
+
+import { spawnSync } from "node:child_process";
 
 // Hardcoded on purpose. This script must never be able to reach live PayPal.
 const BASE = "https://api-m.sandbox.paypal.com";
@@ -143,16 +149,60 @@ async function main() {
     }),
   });
   console.log(`      Webhook created for ${WEBHOOK_URL}`);
-  console.log(`      Webhook ID: ${webhook.id}`);
   console.log(`      Events: ${EVENTS.length} subscribed\n`);
 
-  console.log("=".repeat(72));
-  console.log("PASTE THESE TWO INTO VERCEL (see runbook step 5):");
-  console.log("=".repeat(72));
-  console.log("\n  PAYPAL_PREMIUM_PLAN_ID   = " + plan.id);
-  console.log("  PAYPAL_WEBHOOK_ID        = " + webhook.id + "\n");
-  console.log("Keep the tab open - you will also need the sandbox Client ID and");
-  console.log("Secret from the app page for step 5.\n");
+  // ---------------------------------------------------------------------
+  // Configure Vercel. The five vars must ALL be sandbox, or the site ends up
+  // in a half-sandbox state that is very hard to debug: the code only reaches
+  // live PayPal when PAYPAL_MODE is exactly "live", so a single leftover live
+  // client id silently breaks token exchange in a non-obvious way.
+  //
+  // The secret is passed to the CLI's stdin, never as a command-line argument
+  // (arguments are visible in process listings) and never printed.
+  // ---------------------------------------------------------------------
+  console.log("Writing the five PayPal variables into Vercel (production)...\n");
+
+  const vars = [
+    ["PAYPAL_MODE", "sandbox"],
+    ["PAYPAL_CLIENT_ID", process.env.PAYPAL_CLIENT_ID],
+    ["PAYPAL_CLIENT_SECRET", process.env.PAYPAL_CLIENT_SECRET],
+    ["PAYPAL_PREMIUM_PLAN_ID", plan.id],
+    ["PAYPAL_WEBHOOK_ID", webhook.id],
+  ];
+
+  let failed = 0;
+  for (const [name, value] of vars) {
+    const isSecret = name === "PAYPAL_CLIENT_SECRET";
+    const result = spawnSync("vercel", ["env", "add", name, "production"], {
+      input: value ?? "",
+      shell: true, // Windows resolves vercel.cmd only this way
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    if (result.status === 0) {
+      // Never echo the value - only say which variable landed.
+      console.log(`  OK   ${name}${isSecret ? "  (secret, not shown)" : ""}`);
+    } else {
+      failed += 1;
+      console.log(`  FAIL ${name}  ->  ${(result.stderr || "").trim().split("\n")[0] ?? "unknown error"}`);
+      if (isSecret) {
+        console.log("       Set this one yourself (the script will not echo a secret):");
+        console.log("           vercel env add PAYPAL_CLIENT_SECRET production");
+        console.log("       then paste the Secret at the prompt.");
+      }
+    }
+  }
+
+  console.log("\n" + "=".repeat(72));
+  if (failed === 0) {
+    console.log("ALL FIVE VARIABLES SET.");
+    console.log("\nNext: I deploy, then you approve the subscription as the sandbox buyer.");
+  } else {
+    console.log(`${failed} VARIABLE(S) DID NOT SET. Fix those before deploying, or the`);
+    console.log("site will be half-sandbox and behave unpredictably.");
+  }
+  console.log("=".repeat(72) + "\n");
 }
 
 main().catch(err => {

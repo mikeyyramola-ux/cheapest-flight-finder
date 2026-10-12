@@ -9,7 +9,7 @@ into premium for the right customer.
 **Risk you must understand before you start:**
 while `PAYPAL_MODE` is not the exact string `live`, **your production site accepts
 only sandbox subscriptions**. Real buyers during that window would fail. Do this
-in a quiet window and **do not skip step 8**.
+in a quiet window and **do not skip step 7**.
 
 ---
 
@@ -44,10 +44,10 @@ The merchant account was created automatically with the app. You still need a
 
 ---
 
-## 3. Provision the plan and webhook (~2 min)
+## 3. Provision AND configure (~2 min)
 
 PayPal has **no dashboard UI** for creating a billing plan or a webhook — both are
-API-only. So this part is a script. Run it **on your own machine**, in the repo:
+API-only. So this part is a script. Run it **on your own machine**, from the repo:
 
 ```powershell
 cd "C:\Users\ABCD\AppData\Local\Temp\opencode\cff-live"
@@ -56,54 +56,39 @@ set PAYPAL_CLIENT_SECRET=<the sandbox Secret from step 1>
 node scripts\sandbox-provision.mjs
 ```
 
-It prints two values you will paste in step 5:
+This does **both** remaining technical steps at once:
 
-```
-  PAYPAL_PREMIUM_PLAN_ID   = P-XXXXXXXXXXXX
-  PAYPAL_WEBHOOK_ID        = WH-XXXXXXXXXXXX
-```
+- creates the product, the **9.99 USD / month** plan, and a webhook subscribed to
+  the six events fareloop actually reads, then
+- writes **all five** PayPal variables into Vercel for you.
+
+You never copy a value between two windows, which is where the mistakes happen.
+It ends with either `ALL FIVE VARIABLES SET` or a list of exactly which ones
+failed.
 
 The script is **hardcoded to the sandbox host**, so it cannot touch your live
 account no matter what environment variables are set. Your secret is read from
-your terminal and is never printed or written to disk.
+your terminal and handed straight to the Vercel CLI on stdin — never printed,
+never passed as a command-line argument (arguments are visible in process
+listings), never written to disk.
 
 > If it prints `Sandbox authentication failed`, you are holding **live**
 > credentials. Go back to step 1 and check the Sandbox toggle.
 
----
+> If `PAYPAL_CLIENT_SECRET` fails to set, the script deliberately refuses to echo
+> a secret. Set that one yourself — `vercel env add PAYPAL_CLIENT_SECRET production`
+> — and paste it at the prompt.
 
-## 4. Switch fareloop to sandbox (~2 min)
+### Why all five, together
 
-Run these **from the linked repo** (`cff-live`). Each waits for you to paste the
-value on the prompt — nothing is ever written into a command you might accidentally
-log.
-
-```powershell
-cd "C:\Users\ABCD\AppData\Local\Temp\opencode\cff-live"
-
-vercel env add PAYPAL_MODE production
-   sandbox
-
-vercel env add PAYPAL_CLIENT_ID production
-   <sandbox Client ID>
-
-vercel env add PAYPAL_CLIENT_SECRET production
-   <sandbox Secret>
-
-vercel env add PAYPAL_PREMIUM_PLAN_ID production
-   <P-... from step 3>
-
-vercel env add PAYPAL_WEBHOOK_ID production
-   <WH-... from step 3>
-```
-
-**All five must be set.** Your code selects the live API only when `PAYPAL_MODE`
-is *exactly* `live`; anything else silently uses sandbox. Leaving any one var on
-live values produces a confusing half-sandbox state that is hard to debug.
+Your code reaches live PayPal **only** when `PAYPAL_MODE` is exactly `live`;
+anything else silently uses sandbox. Leave one var on a live value and the site is
+in a half-sandbox state that fails in a confusing way. The script sets them as one
+atomic step so that cannot happen.
 
 ---
 
-## 5. Deploy (~3 min)
+## 4. Deploy (~3 min)
 
 ```powershell
 vercel deploy --prod --yes
@@ -116,7 +101,7 @@ Wait for `Aliased https://fareloop.in`.
 
 ---
 
-## 6. Buy it, as the buyer (~5 min)
+## 5. Buy it, as the buyer (~5 min)
 
 1. Open <https://fareloop.in> in a **normal browser window**.
 2. **Sign in** with a fresh test account (or register one). You must be signed in —
@@ -130,7 +115,7 @@ Wait for `Aliased https://fareloop.in`.
 
 ---
 
-## 7. Verify (~2 min + one wait)
+## 6. Verify (~2 min + one wait)
 
 **Wait 5 minutes.** fareloop caches each premium verdict for 5 minutes
 (`PREMIUM_CACHE_MS`). If you checked the paywall *before* approving, that refusal
@@ -151,7 +136,7 @@ return `premium: true, status: "ACTIVE"`.
 
 ---
 
-## 8. REVERT — mandatory (~3 min)
+## 7. REVERT — mandatory (~3 min)
 
 **Do not leave production on sandbox.** Put the live values back:
 
@@ -191,10 +176,10 @@ subscription and `verifyPayPal` should report `APPROVAL_PENDING`, not `ACTIVE`.
 |---|---|
 | Script says authentication failed | Sandbox toggle is off — you passed live credentials (step 1). |
 | Redirect asks for a login and then errors | You logged in as the **merchant**. Use the **buyer** (step 2). |
-| Still `FORBIDDEN` after paying | The 5-minute premium cache (step 7). Wait, or use a fresh subscription. |
-| Webhook returns **401** | `PAYPAL_WEBHOOK_ID` is still the **live** id. All five vars must be sandbox (step 4). |
+| Still `FORBIDDEN` after paying | The 5-minute premium cache (step 6). Wait, or use a fresh subscription. |
+| Webhook returns **401** | `PAYPAL_WEBHOOK_ID` is still the **live** id. All five vars must be sandbox (step 3). |
 | Webhook returns **400** | Webhook URL mismatch, or the subscription's plan belongs to a different app. |
-| Checkout says `demo` | You were not signed in when you clicked subscribe (step 6). |
+| Checkout says `demo` | You were not signed in when you clicked subscribe (step 5). |
 | Alerts say "no user to attribute it to" | Attribution failed — but this should no longer happen, since the handler now falls back to the subscriber email. Check that the buying fareloop account's email matches the PayPal buyer's email. |
 | Everything reverts by itself? | It doesn't. Step 8 is on you. |
 
