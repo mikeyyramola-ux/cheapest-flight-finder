@@ -690,9 +690,11 @@ async function full() {
 
   openInBrowser("https://fareloop.in/paywall");
 
-  const sub = await waitForSubscription(t, planId, 8);
+  // Generous window: this is the step a human and an agent share, and a
+  // tight deadline turns a slow login into a failed test.
+  const sub = await waitForSubscription(t, planId, 15);
   if (!sub) {
-    console.log("\n[STOP] No subscription appeared on plan " + planId + " within 8 minutes.");
+    console.log("\n[STOP] No subscription appeared on plan " + planId + " within 15 minutes.");
     console.log("       Production is still on SANDBOX, so putting it back now.\n");
     if (doRevert(liveVars)) {
       console.log("\n  Production restored to live PayPal.");
