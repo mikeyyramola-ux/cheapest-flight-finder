@@ -1,4 +1,4 @@
-import { getUserBySubscriptionId, updateUserPayPalSubscription } from "./db";
+import { getUserByEmail, getUserBySubscriptionId, updateUserPayPalSubscription } from "./db";
 import { deliverTelegram } from "./telegram";
 
 export const premiumPlanPayPal = {
@@ -205,6 +205,54 @@ async function alertUnrecorded(reason: string, subscriptionId: string | null | u
   if (!notice.delivered) console.warn("[PayPal] Unrecorded-event alert not delivered:", notice.reason);
 }
 
+/**
+ * Work out which customer a subscription belongs to, from the event PayPal sent.
+ *
+ * Attribution used to rest entirely on `resource.custom_id`, which is the value
+ * we stamped onto the subscription at checkout. That is the fastest route and it
+ * is tried first, but it is the ONLY field here we do not control: PayPal's
+ * documented subscription payload leads with `id`, `plan_id`, `subscriber` and
+ * `billing_info`, and third-party captures of real subscription events do not
+ * consistently show `custom_id`. If it were ever absent, `Number(undefined)` is
+ * NaN, the guard fails, and every paying customer would be charged and then
+ * paged to the owner as "no user to attribute it to" - premium never attached,
+ * silently, on the one path that only runs when someone actually pays.
+ *
+ * So resolution falls back through the fields PayPal always sends. The
+ * subscriber's email address appears in every documented subscription payload,
+ * and we already know the account that started the checkout. A subscription that
+ * has been seen before resolves by its own id.
+ *
+ * Returns undefined only when none of these identify an account, which is the
+ * genuine case the owner should be alerted about.
+ */
+async function resolveUserIdForSubscription(
+  subscription: { custom_id?: unknown; subscriber?: { email_address?: unknown } },
+  subscriptionId: string
+): Promise<number | undefined> {
+  // 1. Our own identifier, echoed back. Cheapest and exact.
+  const fromCustomId = Number(subscription.custom_id);
+  if (Number.isInteger(fromCustomId) && fromCustomId > 0) return fromCustomId;
+
+  // 2. The subscriber's email. PayPal normalises casing, so an exact match is
+  //    attempted before a case-insensitive one - the column is compared with
+  //    `eq`, which is case-sensitive.
+  const email = String(subscription.subscriber?.email_address ?? "").trim();
+  if (email) {
+    for (const candidate of email === email.toLowerCase() ? [email] : [email, email.toLowerCase()]) {
+      const found = await getUserByEmail(candidate);
+      if (found?.id) return found.id;
+    }
+  }
+
+  // 3. A subscription we have already recorded against an account - a renewal,
+  //    or an earlier CREATED event that did land.
+  const alreadyRecorded = await getUserBySubscriptionId("paypal", subscriptionId);
+  if (alreadyRecorded?.id) return alreadyRecorded.id;
+
+  return undefined;
+}
+
 export async function handlePayPalWebhook(
   payload: Buffer,
   headers: Record<string, string | string[] | undefined>
@@ -258,17 +306,19 @@ export async function handlePayPalWebhook(
   // trap for any future reader of subscriptionStatus, so it is recorded honestly.
   if (event.event_type === "BILLING.SUBSCRIPTION.ACTIVATED" || event.event_type === "BILLING.SUBSCRIPTION.CREATED") {
     const subscription = event.resource;
-    const userId = Number(subscription.custom_id);
     const subscriptionId = subscription.id;
     const status = event.event_type === "BILLING.SUBSCRIPTION.ACTIVATED" ? "active" : "pending";
     const paid = status === "active";
-    if (Number.isInteger(userId) && userId > 0) {
+    // Resolved by more than the one field, so an absent custom_id cannot silently
+    // detach a paying customer from the account they just paid for.
+    const userId = await resolveUserIdForSubscription(subscription, subscriptionId);
+    if (userId) {
       const persisted = await updateUserPayPalSubscription({ userId, subscriptionId, status });
       if (!persisted) await alertUnrecorded(`subscription ${status} but there is no database to record it in`, subscriptionId);
     } else {
       await alertUnrecorded(`subscription ${status} but it has no user to attribute it to`, subscriptionId);
     }
-    return { verified: true, type: event.event_type, paid };
+    return { verified: true, type: event.event_type, paid, attributed: Boolean(userId) };
   }
 
   if (event.event_type === "BILLING.SUBSCRIPTION.CANCELLED" || event.event_type === "BILLING.SUBSCRIPTION.SUSPENDED") {

@@ -23,12 +23,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const mocks = vi.hoisted(() => ({
+  getUserByEmail: vi.fn(),
   getUserBySubscriptionId: vi.fn(),
   updateUserPayPalSubscription: vi.fn(),
   deliverTelegram: vi.fn(),
 }));
 
 vi.mock("./db", () => ({
+  getUserByEmail: mocks.getUserByEmail,
   getUserBySubscriptionId: mocks.getUserBySubscriptionId,
   updateUserPayPalSubscription: mocks.updateUserPayPalSubscription,
 }));
@@ -71,7 +73,11 @@ function persistedStatus(): string | undefined {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getUserBySubscriptionId.mockResolvedValue({ id: 42, paypalSubscriptionId: "I-TEST" });
+  // Default: no user is discoverable by any route. Individual tests opt in to a
+  // resolvable customer, so "nothing resolves" is the true default rather than an
+  // accident of a fixture that happens to return user 42.
+  mocks.getUserByEmail.mockResolvedValue(undefined);
+  mocks.getUserBySubscriptionId.mockResolvedValue(undefined);
   mocks.updateUserPayPalSubscription.mockResolvedValue(true);
   mocks.deliverTelegram.mockResolvedValue({
     channel: "Telegram",
