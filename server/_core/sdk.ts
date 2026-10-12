@@ -163,6 +163,18 @@ class SDKServer {
    * Create a session token for a Manus user openId
    * @example
    * const sessionToken = await sdk.createSessionToken(userInfo.openId);
+   *
+   * INVARIANT: a token this function mints MUST be one verifySession will accept.
+   * verifySession rejects any payload whose openId, appId or name is not a
+   * non-empty string, so signing name:"" would produce a token that is valid,
+   * correctly signed, and permanently un-verifiable - the customer gets a cookie
+   * that silently never authenticates. Defaulting the name to "" was exactly that
+   * bug, and it is why registering without filling in the OPTIONAL name field
+   * created an account the session could never identify.
+   *
+   * The empty case is therefore coerced here, at the point of signing, rather than
+   * at each call site: this pairs with verifySession, so it is the one place the
+   * rule can be stated once and cannot be forgotten by a future caller.
    */
   async createSessionToken(
     openId: string,
@@ -172,7 +184,10 @@ class SDKServer {
       {
         openId,
         appId: ENV.appId,
-        name: options.name || "",
+        // A caller that supplies no name falls back to the openId rather than to
+        // "": the openId is already required to be non-empty and unique, so the
+        // token stays verifiable and still identifies exactly one account.
+        name: options.name?.trim() || openId,
       },
       options
     );

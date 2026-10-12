@@ -185,7 +185,9 @@ export const appRouter = router({
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Account created but could not be loaded. Please sign in." });
 
         // Identical to the OAuth callback: one session cookie, one year, same name.
-        const sessionToken = await sdk.createSessionToken(openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS });
+        // The email is the fallback name because it is what the customer actually
+        // typed, and because createSessionToken refuses to sign an empty one.
+        const sessionToken = await sdk.createSessionToken(openId, { name: user.name || user.email || openId, expiresInMs: ONE_YEAR_MS });
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: ONE_YEAR_MS });
 
         return { user: publicUser(user) };
@@ -212,7 +214,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect email or password." });
         }
 
-        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS });
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || user.email || user.openId, expiresInMs: ONE_YEAR_MS });
         ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: ONE_YEAR_MS });
         await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
 
