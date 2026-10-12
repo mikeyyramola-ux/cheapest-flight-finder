@@ -8,7 +8,13 @@
  *   1. developer.paypal.com   (create the sandbox app + buyer)
  *   2. sandbox.paypal.com     (the buyer approving the subscription)
  *
- * Everything else is one of these three commands.
+ * Everything else is one of these four commands.
+ *
+ *   node scripts\sandbox-test.mjs full
+ *       The single click. Asks for six values once, provisions the sandbox,
+ *       opens the paywall, WAITS for you to approve (finding the subscription
+ *       id from PayPal itself - no F12, no pasting), verifies, then puts
+ *       production back on live. This is what scripts\fareloop-test.cmd runs.
  *
  *   node scripts\sandbox-test.mjs setup
  *       Creates the sandbox plan + webhook, writes all five PayPal variables
@@ -34,9 +40,16 @@
  *   They are never printed, never passed as command-line arguments (arguments
  *   are visible in process listings), and never written to disk.
  * - No environment value is ever pulled to a file. Not even to back one up.
+ * - `full` asks for the LIVE values so it can restore production, but those
+ *   values are only ever written back to Vercel. They are never sent to
+ *   PayPal - there is no code path in this file that could send them there.
+ * - `full` writes the restore values explicitly and never falls back to the
+ *   environment. During a run the environment holds SANDBOX values, and
+ *   writing those back as "live" would break production payments.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createInterface } from "node:readline";
 
 const SANDBOX_BASE = "https://api-m.sandbox.paypal.com";
 const WEBHOOK_URL = process.argv[3] ?? "https://fareloop.in/api/paypal/webhook";
@@ -96,16 +109,59 @@ async function call(t, path, options = {}) {
   return { ok: res.ok, status: res.status, body };
 }
 
-/** Writes one Vercel variable. Value goes in on stdin, never as an argument. */
+/**
+ * Pulls a human-readable reason out of a failed Vercel CLI call.
+ *
+ * The CLI writes its version banner to stderr on EVERY invocation, so taking
+ * stderr.split("\n")[0] always yields "Vercel CLI 59.25.0 (Node.js 24.19.0)"
+ * and hides the actual failure. Vercel also reports structured failures as a
+ * JSON object on stdout, which is the most precise source when present.
+ */
+function extractVercelError(result) {
+  const out = (result.stdout || "").trim();
+  const jsonError = /\{[\s\S]*?"status"\s*:\s*"error"[\s\S]*?\}/.exec(out);
+  if (jsonError) {
+    try {
+      const parsed = JSON.parse(jsonError[0]);
+      return parsed.message || parsed.reason || out.split("\n")[0];
+    } catch {
+      /* fall through to the text path */
+    }
+  }
+  // Lines the CLI and the Windows shell wrap it in emit regardless of outcome.
+  const noise =
+    /^(Vercel CLI \d|Retrieving project|DeprecationWarning|node :|At line:|\+\s|CategoryInfo|FullyQualifiedErrorId|categoryInfo|position|char|\s*~+\s*$|.*trace-deprecation)/i;
+  const lines = (result.stderr || "")
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l && !noise.test(l));
+  if (lines.length) return lines[0];
+  if (out) return out.split("\n")[0];
+  return `exited with code ${result.status}`;
+}
+
+/**
+ * Writes one Vercel variable. Value goes in on stdin, never as an argument.
+ *
+ * --force is not optional here: all five PayPal names ALREADY exist on this
+ * project (created 13d ago), and a bare `env add` refuses to touch a name that
+ * is present for the same target. Without --force every write fails with a
+ * duplicate-name error, which is exactly what happened on the first run.
+ *
+ * The value is still piped on stdin rather than passed with --value, because
+ * --value would put your secret on the command line where it is readable in
+ * process listings.
+ */
 function setVercelEnv(name, value) {
-  const result = spawnSync("vercel", ["env", "add", name, "production"], {
+  const result = spawnSync("vercel", ["env", "add", name, "production", "--force"], {
     input: value ?? "",
+    cwd: process.cwd(), // pin the project so a write can never land elsewhere
     shell: true, // Windows resolves vercel.cmd only this way
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
   });
-  if (result.status !== 0) return (result.stderr || "").trim().split("\n")[0] ?? "unknown error";
-  return null;
+  if (result.status === 0) return null;
+  return extractVercelError(result);
 }
 
 function deploy() {
@@ -123,9 +179,114 @@ function deploy() {
 }
 
 // ---------------------------------------------------------------------------
+// Single-run helpers
+// ---------------------------------------------------------------------------
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Builds a question function that works whether you are typing at a console
+ * or the values are piped in.
+ *
+ * `rl.question` attaches a one-time "line" listener, so any line that arrives
+ * while no question is pending is silently discarded. That is harmless when
+ * you type - the next answer only exists once you are asked - but it loses
+ * almost every value under a pipe, which also makes the code impossible to
+ * test. Buffering incoming lines and pulling them in order is correct in both
+ * cases.
+ *
+ * It resolves to an empty string once stdin closes, so a window closed
+ * mid-run fails loudly instead of leaving the process waiting forever on a
+ * question nobody can answer - with production sitting on sandbox and
+ * nothing driving it back.
+ */
+function createAsk() {
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  const buffered = [];
+  let ended = false;
+  let waiting = null;
+
+  rl.on("line", line => {
+    if (waiting) {
+      const resolve = waiting;
+      waiting = null;
+      resolve(line);
+    } else {
+      buffered.push(line);
+    }
+  });
+  rl.on("close", () => {
+    ended = true;
+    if (waiting) {
+      const resolve = waiting;
+      waiting = null;
+      resolve("");
+    }
+  });
+
+  const askFn = question =>
+    new Promise(resolve => {
+      process.stdout.write(question);
+      if (buffered.length) return resolve(buffered.shift());
+      if (ended) return resolve("");
+      waiting = resolve;
+    });
+  askFn.done = () => rl.close();
+  return askFn;
+}
+
+/** Opens a URL in the default browser without blocking this process. */
+function openInBrowser(url) {
+  try {
+    spawn("cmd", ["/c", "start", '"', url], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  } catch {
+    /* a failure here is cosmetic - the URL is printed either way */
+  }
+}
+
+/**
+ * Asks PayPal for the newest subscription sitting on a known plan.
+ *
+ * This is what removes the manual step: instead of you pressing F12 and
+ * pasting an id out of localStorage, the id is discovered from PayPal itself.
+ */
+async function newestSubscriptionForPlan(t, planId) {
+  const r = await call(
+    t,
+    `/v1/billing/subscriptions?plan_id=${encodeURIComponent(planId)}&total_count=20`
+  );
+  if (!r.ok) return null;
+  const subs = Array.isArray(r.body?.subscriptions) ? r.body.subscriptions : [];
+  return subs.slice().sort((a, b) => String(b.create_time ?? "").localeCompare(String(a.create_time ?? "")))[0] ?? null;
+}
+
+/**
+ * Waits until you have approved, then returns that subscription.
+ * Reports progress once a minute so a long wait never looks like a hang.
+ */
+async function waitForSubscription(t, planId, minutes) {
+  const deadline = Date.now() + minutes * 60_000;
+  let lastReport = Date.now();
+  while (Date.now() < deadline) {
+    const sub = await newestSubscriptionForPlan(t, planId).catch(() => null);
+    if (sub?.id) return sub;
+    if (Date.now() - lastReport >= 60_000) {
+      process.stdout.write(`  still waiting (${Math.round((deadline - Date.now()) / 60000)} min left)\n`);
+      lastReport = Date.now();
+    }
+    await sleep(5000);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // setup
 // ---------------------------------------------------------------------------
-async function setup() {
+/**
+ * Everything setup needs, with nothing printed that belongs to a human.
+ * Returns the live sandbox token and the plan id, because the single-click
+ * run needs both to find your subscription afterwards.
+ */
+async function provision() {
   requireCreds();
   console.log("\nFareloop - SANDBOX setup");
   console.log("PayPal host: " + SANDBOX_BASE + "  (hardcoded; cannot reach live)\n");
@@ -193,7 +354,7 @@ async function setup() {
       console.log(`  FAIL ${name}  ->  ${err}`);
       if (isSecret) {
         console.log("       The script will not echo a secret. Set it yourself:");
-        console.log("           vercel env add PAYPAL_CLIENT_SECRET production");
+        console.log("           vercel env add PAYPAL_CLIENT_SECRET production --force");
       }
     } else {
       console.log(`  OK   ${name}${isSecret ? "  (secret, not shown)" : ""}`);
@@ -209,6 +370,12 @@ async function setup() {
   console.log("\n  ALL FIVE VARIABLES SET.");
   if (!deploy()) process.exit(1);
 
+  return { t, planId: plan.body.id };
+}
+
+async function setup() {
+  await provision();
+
   console.log("=".repeat(72));
   console.log("SETUP COMPLETE. Now the only part that is yours:");
   console.log("=".repeat(72));
@@ -222,27 +389,11 @@ async function setup() {
 // ---------------------------------------------------------------------------
 // verify
 // ---------------------------------------------------------------------------
-async function verify(subscriptionId) {
-  if (!subscriptionId) {
-    console.log(
-      [
-        "",
-        "I need the subscription id to verify. Get it in ONE paste:",
-        "",
-        "  1. On fareloop.in, press F12 -> Console",
-        "  2. Paste this and press Enter:",
-        "",
-        "     copy(localStorage.getItem('fareloop_premium_sub_id') || localStorage.getItem('fareloop_pending_sub_id'))",
-        "",
-        "  3. Then run:",
-        "",
-        "     node scripts\\sandbox-test.mjs verify <paste the I-... value here>",
-        "",
-      ].join("\n")
-    );
-    process.exit(0);
-  }
-
+/**
+ * The decisive check. Returns its verdict so the single-click run can chain on
+ * to the revert without reprinting everything.
+ */
+async function verifyInner(subscriptionId) {
   requireCreds();
   console.log("\nFareloop - SANDBOX verification\n");
   console.log("Subscription: " + subscriptionId + "\n");
@@ -311,34 +462,60 @@ async function verify(subscriptionId) {
   }
   console.log("=".repeat(72));
 
+  return { bothAgree, paypalStatus, fareloopPremium };
+}
+
+async function verify(subscriptionId) {
+  if (!subscriptionId) {
+    console.log(
+      [
+        "",
+        "I need the subscription id to verify. Easiest: run the single-click",
+        "entry point instead - it discovers the id from PayPal for you:",
+        "",
+        "     scripts\\fareloop-test.cmd",
+        "",
+        "To verify an id you already have:",
+        "",
+        "  1. On fareloop.in, press F12 -> Console",
+        "  2. Paste this and press Enter:",
+        "",
+        "     copy(localStorage.getItem('fareloop_premium_sub_id') || localStorage.getItem('fareloop_pending_sub_id'))",
+        "",
+        "  3. Then run:",
+        "",
+        "     node scripts\\sandbox-test.mjs verify <paste the I-... value here>",
+        "",
+      ].join("\n")
+    );
+    process.exit(0);
+  }
+
+  const r = await verifyInner(subscriptionId);
+
   console.log("\nWHEN YOU ARE DONE - put live payments back:");
   console.log("    node scripts\\sandbox-test.mjs revert\n");
 
-  process.exit(bothAgree ? 0 : 1);
+  process.exit(r.bothAgree ? 0 : 1);
 }
 
 // ---------------------------------------------------------------------------
 // revert
 // ---------------------------------------------------------------------------
-async function revert() {
-  requireCreds();
-  console.log("\nFareloop - REVERT to live PayPal\n");
-  console.log("Using the credentials currently in your environment as the LIVE ones.");
-  console.log("If these are still sandbox values, stop and set the live ones first.\n");
-
-  const vars = [
-    ["PAYPAL_MODE", "live"],
-    ["PAYPAL_CLIENT_ID", process.env.PAYPAL_CLIENT_ID],
-    ["PAYPAL_CLIENT_SECRET", process.env.PAYPAL_CLIENT_SECRET],
-    ["PAYPAL_PREMIUM_PLAN_ID", process.env.PAYPAL_PREMIUM_PLAN_ID],
-    ["PAYPAL_WEBHOOK_ID", process.env.PAYPAL_WEBHOOK_ID],
-  ];
-
+/**
+ * Writes the given PayPal variables and redeploys.
+ *
+ * Parameterised on purpose. During a single-click run the environment holds
+ * SANDBOX values, so a revert that read from the environment would write
+ * sandbox credentials back as "live" and quietly break production payments.
+ * Callers must therefore pass the live values explicitly.
+ */
+function doRevert(vars) {
   let failed = 0;
   for (const [name, value] of vars) {
     if (!value) {
       failed += 1;
-      console.log(`  SKIP ${name}  ->  not set in your environment`);
+      console.log(`  SKIP ${name}  ->  no value available`);
       continue;
     }
     if (SECRET_VARS.has(name)) sawSecret = true;
@@ -353,11 +530,28 @@ async function revert() {
 
   if (failed > 0) {
     console.log(`\n${failed} VARIABLE(S) NOT SET. Production is still on sandbox until this is fixed.`);
-    process.exit(1);
+    return false;
   }
 
   console.log("\n  ALL FIVE RESTORED.");
-  if (!deploy()) process.exit(1);
+  return deploy();
+}
+
+async function revert() {
+  requireCreds();
+  console.log("\nFareloop - REVERT to live PayPal\n");
+  console.log("Using the credentials currently in your environment as the LIVE ones.");
+  console.log("If these are still sandbox values, stop and set the live ones first.\n");
+
+  const vars = [
+    ["PAYPAL_MODE", "live"],
+    ["PAYPAL_CLIENT_ID", process.env.PAYPAL_CLIENT_ID],
+    ["PAYPAL_CLIENT_SECRET", process.env.PAYPAL_CLIENT_SECRET],
+    ["PAYPAL_PREMIUM_PLAN_ID", process.env.PAYPAL_PREMIUM_PLAN_ID],
+    ["PAYPAL_WEBHOOK_ID", process.env.PAYPAL_WEBHOOK_ID],
+  ];
+
+  if (!doRevert(vars)) process.exit(1);
 
   console.log("=".repeat(72));
   console.log("REVERTED. Sanity-check once that a real checkout issues a genuine");
@@ -366,12 +560,149 @@ async function revert() {
 }
 
 // ---------------------------------------------------------------------------
+// full - the single click
+// ---------------------------------------------------------------------------
+/**
+ * One unattended run: provision -> open the paywall -> wait for your approval
+ * -> verify -> put production back.
+ *
+ * It asks for the LIVE values up front rather than at the end. If anything
+ * goes wrong halfway you are never left hunting for credentials while
+ * production is sitting on sandbox, and you never have to gather them at all
+ * if the run is aborted early.
+ */
+async function full() {
+  console.log("\n" + "=".repeat(72));
+  console.log(" FARELOOP - complete sandbox test, one run");
+  console.log("=".repeat(72));
+  console.log(
+    [
+      "",
+      "This asks for six values once, then runs unattended apart from the two",
+      "PayPal logins, which stay yours alone permanently.",
+      "",
+      "  SANDBOX - developer.paypal.com, Sandbox toggle ON, your app:",
+      "     1. Sandbox Client ID",
+      "     2. Sandbox Secret",
+      "",
+      "  LIVE - used for ONE thing: putting production back afterwards.",
+      "         They are never sent to PayPal; the host is hardcoded to sandbox.",
+      "     3. Live Client ID",
+      "     4. Live Secret",
+      "     5. Live Plan ID",
+      "     6. Live Webhook ID",
+      "",
+    ].join("\n")
+  );
+
+  const ask = createAsk();
+  const sbxId = (await ask("  1. Sandbox Client ID : ")).trim();
+  const sbxSecret = (await ask("  2. Sandbox Secret    : ")).trim();
+  const liveId = (await ask("  3. Live Client ID     : ")).trim();
+  const liveSecret = (await ask("  4. Live Secret        : ")).trim();
+  const livePlan = (await ask("  5. Live Plan ID       : ")).trim();
+  const liveWebhook = (await ask("  6. Live Webhook ID    : ")).trim();
+  ask.done();
+  console.log("");
+
+  if (!sbxId || !sbxSecret) die("Sandbox Client ID and Secret are required to run the test.");
+
+  const missing = [
+    !liveId && "Live Client ID",
+    !liveSecret && "Live Secret",
+    !livePlan && "Live Plan ID",
+    !liveWebhook && "Live Webhook ID",
+  ].filter(Boolean);
+  if (missing.length) {
+    die(
+      `Missing: ${missing.join(", ")}.\n` +
+        "       Without them production cannot be put back afterwards, and it\n" +
+        "       would stay on sandbox - meaning real customers could not buy.\n" +
+        "       Supply all six, or run `setup` / `verify` / `revert` separately\n" +
+        "       and handle the revert by hand."
+    );
+  }
+
+  // provision() and verifyInner() authenticate by reading PAYPAL_CLIENT_ID and
+  // PAYPAL_CLIENT_SECRET, so place the sandbox pair there. The live pair is
+  // held separately and is only ever used to write back.
+  process.env.PAYPAL_CLIENT_ID = sbxId;
+  process.env.PAYPAL_CLIENT_SECRET = sbxSecret;
+
+  const liveVars = [
+    ["PAYPAL_MODE", "live"],
+    ["PAYPAL_CLIENT_ID", liveId],
+    ["PAYPAL_CLIENT_SECRET", liveSecret],
+    ["PAYPAL_PREMIUM_PLAN_ID", livePlan],
+    ["PAYPAL_WEBHOOK_ID", liveWebhook],
+  ];
+
+  const { t, planId } = await provision();
+
+  console.log("\n" + "=".repeat(72));
+  console.log("SETUP DONE. The paywall is opening - your part starts now.");
+  console.log("=".repeat(72));
+  console.log(
+    [
+      "",
+      "  There are three things I cannot do and will never ask you to do:",
+      "",
+      "    1. Sign in to fareloop.in (use a fresh test account).",
+      "    2. Click subscribe on the paywall.",
+      "    3. On sandbox.paypal.com, log in as the SANDBOX BUYER (choose",
+      "       Personal - NOT your merchant account) and Agree & Subscribe.",
+      "",
+      "  I am watching PayPal for the subscription to appear. You do not need",
+      "  to copy an id or tell me anything - just approve it.",
+      "",
+    ].join("\n")
+  );
+
+  openInBrowser("https://fareloop.in/paywall");
+
+  const sub = await waitForSubscription(t, planId, 8);
+  if (!sub) {
+    console.log("\n[STOP] No subscription appeared on plan " + planId + " within 8 minutes.");
+    console.log("       Production is still on SANDBOX, so putting it back now.\n");
+    if (doRevert(liveVars)) {
+      console.log("\n  Production restored to live PayPal.");
+    } else {
+      console.log("\n  RESTORE FAILED. Run this yourself with your live values:");
+      console.log("      node scripts\\sandbox-test.mjs revert\n");
+    }
+    process.exit(1);
+  }
+
+  console.log(`\nFound ${sub.id} (created ${sub.create_time}, status ${sub.status})\n`);
+
+  const result = await verifyInner(sub.id);
+
+  console.log("\n" + "-".repeat(72));
+  console.log("Putting production back on LIVE PayPal.");
+  console.log("-".repeat(72) + "\n");
+
+  if (doRevert(liveVars)) {
+    console.log("=".repeat(72));
+    console.log("DONE. Production is on live PayPal again.");
+    console.log("=".repeat(72));
+  } else {
+    console.log("=".repeat(72));
+    console.log("RESTORE FAILED - PRODUCTION IS STILL ON SANDBOX.");
+    console.log("A real customer cannot complete a purchase until this is fixed.");
+    console.log("Run:  node scripts\\sandbox-test.mjs revert   (with your live values)");
+    console.log("=".repeat(72));
+  }
+
+  process.exit(result.bothAgree ? 0 : 1);
+}
+
+// ---------------------------------------------------------------------------
 const command = process.argv[2] ?? "setup";
 const arg = process.argv[3];
 
-const runners = { setup, verify, revert };
+const runners = { full, setup, verify, revert };
 if (!runners[command]) {
-  die(`Unknown command "${command}". Use: setup | verify [I-SUBSCRIPTIONID] | revert`);
+  die(`Unknown command "${command}". Use: full | setup | verify [I-SUBSCRIPTIONID] | revert`);
 }
 
 runners[command](command === "verify" ? arg : undefined).catch(err => {
