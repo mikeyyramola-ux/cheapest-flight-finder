@@ -243,18 +243,32 @@ export async function handlePayPalWebhook(
 
   const event = JSON.parse(payload.toString());
 
-  // Handle billing subscription events
+  // Handle billing subscription events.
+  //
+  // CREATED and ACTIVATED are deliberately NOT treated alike, though they share a
+  // shape. CREATED fires the instant a subscription record exists - which is when
+  // the buyer has been shown the PayPal approval page and may never come back.
+  // ACTIVATED fires only once PayPal has approved the mandate and collected the
+  // first payment. Writing "active" for both recorded an unpaid, abandoned
+  // checkout as an active subscription in the users row, and paged the owner that
+  // a subscription "is active" for someone who had paid nothing.
+  //
+  // The paywall was never fooled by this - isActiveSubscriber asks PayPal for the
+  // live status and ignores this column - but a row that lies about payment is a
+  // trap for any future reader of subscriptionStatus, so it is recorded honestly.
   if (event.event_type === "BILLING.SUBSCRIPTION.ACTIVATED" || event.event_type === "BILLING.SUBSCRIPTION.CREATED") {
     const subscription = event.resource;
     const userId = Number(subscription.custom_id);
     const subscriptionId = subscription.id;
+    const status = event.event_type === "BILLING.SUBSCRIPTION.ACTIVATED" ? "active" : "pending";
+    const paid = status === "active";
     if (Number.isInteger(userId) && userId > 0) {
-      const persisted = await updateUserPayPalSubscription({ userId, subscriptionId, status: "active" });
-      if (!persisted) await alertUnrecorded("subscription is active but there is no database to record it in", subscriptionId);
+      const persisted = await updateUserPayPalSubscription({ userId, subscriptionId, status });
+      if (!persisted) await alertUnrecorded(`subscription ${status} but there is no database to record it in`, subscriptionId);
     } else {
-      await alertUnrecorded("subscription is active but it has no user to attribute it to", subscriptionId);
+      await alertUnrecorded(`subscription ${status} but it has no user to attribute it to`, subscriptionId);
     }
-    return { verified: true, type: event.event_type };
+    return { verified: true, type: event.event_type, paid };
   }
 
   if (event.event_type === "BILLING.SUBSCRIPTION.CANCELLED" || event.event_type === "BILLING.SUBSCRIPTION.SUSPENDED") {
