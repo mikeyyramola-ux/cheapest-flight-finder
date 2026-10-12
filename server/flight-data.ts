@@ -1,5 +1,6 @@
 import { loadLiveHistory, loadPersistedRoutes, loadPersistedRoutesForUser, persistRoute, recordPricePoint, removePersistedRoute, removePersistedRouteForUser, type PersistableRoute } from "./price-store";
 import { chargeQuota, loadQuotaStatus, scrappaCombined } from "./quota";
+import { getTelegramChatIdForUser } from "./db";
 import { httpReason, recordFallThrough, recordProviderCall, thrownReason, type ProviderCall } from "./provider-obs";
 import { deliverTelegram, type NotificationResult } from "./telegram";
 import type { PriceHistoryRow, TrackedRouteRow } from "../drizzle/schema";
@@ -969,7 +970,18 @@ export type { NotificationResult } from "./telegram";
 export async function sendPriceDropNotification(route: TrackedRoute, dropPercent: number): Promise<NotificationResult> {
   const message = `✈️ Price drop on ${route.origin} → ${route.destination}: $${route.currentPrice} (${dropPercent}% below average). Your target is $${route.targetPrice}.`;
 
-  if (route.alertChannel === "Telegram") return deliverTelegram(message);
+  if (route.alertChannel === "Telegram") {
+    // Resolve the OWNER of this route, so the alert reaches the customer who asked
+    // for it instead of the owner's chat. Before this, every subscriber's alert was
+    // delivered to TELEGRAM_CHAT_ID - the owner - because deliverTelegram took no
+    // recipient at all.
+    //
+    // A null here is not an error to swallow silently: it falls back to the owner's
+    // chat inside deliverTelegram, so an unlinkable customer degrades to the old
+    // behaviour rather than losing the alert entirely.
+    const recipientChatId = await getTelegramChatIdForUser(route.userId);
+    return deliverTelegram(message, recipientChatId);
+  }
 
   // Twilio/WhatsApp is still a placeholder. Say so instead of reporting a delivery
   // that never happened - the previous version returned delivered:true here.

@@ -185,6 +185,35 @@ export async function setTelegramChatId(userId: number, chatId: string) {
 }
 
 /**
+ * Reads back the chat id captured at sign-up, so a price alert can be addressed
+ * to the CUSTOMER who asked for it rather than to the owner's chat.
+ *
+ * Returns null rather than throwing when there is no database or no stored id:
+ * a missing destination is a delivery failure to be reported, never a reason to
+ * fail the surrounding scan, which is checking every other customer's routes too.
+ */
+export async function getTelegramChatIdForUser(userId: number | null | undefined): Promise<string | null> {
+  if (userId == null) return null;
+
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const result = await db
+      .select({ telegramChatId: users.telegramChatId })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    const chatId = result[0]?.telegramChatId;
+    return typeof chatId === "string" && chatId.trim() ? chatId.trim() : null;
+  } catch (error) {
+    warnAndPage("db:get-telegram-chat-id", "[Database] Cannot read telegram chat id:", error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+/**
  * Resolve a user from a payment-provider subscription id.
  *
  * Refund and failed-payment webhooks hand us a charge or an invoice, not a user id -

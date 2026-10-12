@@ -28,9 +28,20 @@ export interface NotificationResult {
   reason: string;
 }
 
-export async function deliverTelegram(message: string): Promise<NotificationResult> {
+/**
+ * @param recipientChatId Optional Telegram chat to deliver to. When supplied, the
+ *   message goes to THAT chat - a customer's, captured at sign-up. When absent it
+ *   falls back to TELEGRAM_CHAT_ID, the owner's chat, which is what every alert did
+ *   before this parameter existed. The fallback is deliberate: an owner alert must
+ *   keep working even when the customer never linked Telegram.
+ *
+ * A bot can only message a chat that has already started a conversation with it, so
+ * a customer-supplied id that has never pressed Start fails with a 403. That is
+ * reported as delivered:false with the reason, never as success.
+ */
+export async function deliverTelegram(message: string, recipientChatId?: string | null): Promise<NotificationResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatId = (recipientChatId && recipientChatId.trim()) || process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return { channel: "Telegram", message, delivered: false, reason: "Telegram credentials not configured" };
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
