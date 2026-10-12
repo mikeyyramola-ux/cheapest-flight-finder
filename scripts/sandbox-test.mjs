@@ -327,12 +327,42 @@ async function provision() {
   if (!plan.ok) die("Could not create the sandbox plan: " + JSON.stringify(plan.body).slice(0, 300));
   console.log(`[3/4] Plan created: ${plan.body.id} @ 9.99 USD / month`);
 
-  const webhook = await call(t, "/v1/notifications/webhooks", {
-    method: "POST",
-    body: JSON.stringify({ url: WEBHOOK_URL, event_types: EVENTS.map(name => ({ name })) }),
-  });
-  if (!webhook.ok) die("Could not create the sandbox webhook: " + JSON.stringify(webhook.body).slice(0, 300));
-  console.log(`      Webhook created for ${WEBHOOK_URL} (${EVENTS.length} events)`);
+  // PayPal allows only ONE webhook per URL per app, so a second run can never
+  // create another - it fails with WEBHOOK_URL_ALREADY_EXISTS. Look it up and
+  // reuse it; only create when genuinely absent. Without this the whole
+  // orchestrator could only ever succeed once, and every retry died here.
+  const listed = await call(t, "/v1/notifications/webhooks");
+  const existing = (listed.body?.webhooks ?? []).find(w => w.url === WEBHOOK_URL);
+  let webhookId;
+
+  if (existing) {
+    webhookId = existing.id;
+    console.log(`      Webhook already exists for ${WEBHOOK_URL} - reusing it`);
+
+    // A reused webhook may be subscribed to the wrong events, which would let
+    // this test look green while activations silently went nowhere. Repair it
+    // rather than trust that it was set up correctly.
+    const have = new Set((existing.event_types ?? []).map(e => e.name));
+    const missing = EVENTS.filter(name => !have.has(name));
+    if (missing.length) {
+      const patched = await call(t, `/v1/notifications/webhooks/${encodeURIComponent(webhookId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ event_types: EVENTS.map(name => ({ name })) }),
+      });
+      if (!patched.ok) die("Webhook exists but its events could not be repaired: " + JSON.stringify(patched.body).slice(0, 300));
+      console.log(`      Added ${missing.length} missing event type(s): ${missing.join(", ")}`);
+    } else {
+      console.log(`      All ${EVENTS.length} event types already subscribed`);
+    }
+  } else {
+    const webhook = await call(t, "/v1/notifications/webhooks", {
+      method: "POST",
+      body: JSON.stringify({ url: WEBHOOK_URL, event_types: EVENTS.map(name => ({ name })) }),
+    });
+    if (!webhook.ok) die("Could not create the sandbox webhook: " + JSON.stringify(webhook.body).slice(0, 300));
+    webhookId = webhook.body.id;
+    console.log(`      Webhook created for ${WEBHOOK_URL} (${EVENTS.length} events)`);
+  }
 
   console.log("\n[4/4] Writing all five PayPal variables into Vercel (production)...\n");
 
@@ -341,7 +371,7 @@ async function provision() {
     ["PAYPAL_CLIENT_ID", process.env.PAYPAL_CLIENT_ID],
     ["PAYPAL_CLIENT_SECRET", process.env.PAYPAL_CLIENT_SECRET],
     ["PAYPAL_PREMIUM_PLAN_ID", plan.body.id],
-    ["PAYPAL_WEBHOOK_ID", webhook.body.id],
+    ["PAYPAL_WEBHOOK_ID", webhookId],
   ];
 
   let failed = 0;
